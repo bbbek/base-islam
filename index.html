@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Nur Salah</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<main id="view"></main>
+<nav id="tabs">
+  <button data-tab="home"></button>
+  <button data-tab="quran"></button>
+  <button data-tab="dhikr"></button>
+  <button data-tab="qibla"></button>
+  <button data-tab="more"></button>
+</nav>
+<audio id="player" preload="none"></audio>
+<div id="toast" role="status"></div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
