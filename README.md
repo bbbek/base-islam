@@ -1,41 +1,47 @@
-# Nur Salah: Telegram Mini App
+# Base Islam
 
-Prayer times, Qibla, Quran with translation and audio, dhikr counter. Free, no paywall.
-"Nur Salah" is a working name: check trademark, domain and bot handle before launch.
+Время намаза, Коран с переводом, транслитерацией и аудио, зикр, кибла и 99 имён Аллаха.
+Бесплатно, без рекламы и регистрации. Работает как Telegram Mini App и как сайт, который можно добавить на экран «Домой».
 
+Сайт: https://bbbek.github.io/base-islam/
+
+## Что внутри
+- **Намаз:** ближайший намаз с обратным отсчётом, время на сегодня, даты по григорианскому календарю и по хиджре, календарь на месяц. Расчёт через Aladhan, метод и мазхаб выбираются в настройках.
+- **Коран:** 114 сур, перевод Кулиева (RU) или Sahih International (EN), транслитерация, пять чтецов, закладки, заметки, продолжение чтения с того же места.
+- **Офлайн:** кнопка «Скачать весь Коран» (≈ 6 МБ) сохраняет текст в браузере. Время намаза на текущий и следующий месяц сохраняется автоматически.
+- **Зикр:** счётчик с целью и виброоткликом. **Кибла:** угол и компас. **99 имён Аллаха:** с поиском, на главной показывается «имя дня».
+- Светлая и тёмная тема (авто, по Telegram или по системе), русский и английский.
+
+## Файлы
 ```
-docs/   the Mini App (static files, no build step). GitHub Pages serves this folder.
-bot/    optional Adhan messages bot (server.py, standard library only) + tests
+index.html, styles.css   разметка и оформление
+app.js                   экраны и логика
+lib.js                   чистые функции (время, кибла, разбор API); их же проверяют тесты
+names.js                 99 имён: арабский текст из Aladhan, транслитерация и значения
+sw.js                    service worker: офлайн-оболочка, кэш текста Корана и шрифтов
+config.js                адрес бота азана (по умолчанию пусто)
+server.py                необязательный бот азана (только стандартная библиотека Python)
+lib.test.js, test_server.py   тесты
 ```
 
-## 1. Publish on GitHub Pages
-1. Create a repository and upload everything from this folder.
-2. Settings -> Pages -> Source: "Deploy from a branch", branch `main`, folder `/docs`, Save.
-3. After a minute the site is at `https://<user>.github.io/<repo>/`. Open it in a browser to check.
+## Публикация на GitHub Pages
+Settings → Pages → «Deploy from a branch», ветка `main`, папка `/ (root)`. После загрузки новых файлов поднимите версию кэша `SHELL` в `sw.js`, чтобы у пользователей обновилась оболочка.
 
-## 2. Connect it to Telegram
-1. In @BotFather: `/newbot`, then save the token somewhere private. Never put it in the repository.
-2. `/setmenubutton` -> choose the bot -> paste the Pages URL -> pick a button title.
-   Or `/newapp` for a shareable `t.me/<bot>/<name>` link.
-3. Open the bot on your phone and press the menu button.
+## Telegram
+В @BotFather: `/setmenubutton` (или `/newapp`) → адрес сайта. Токен бота никогда не кладите в репозиторий.
 
-## 3. Adhan messages (optional)
-Needs a host that stays on (VPS, Fly.io). Prayer times and everything else work without it.
+## Азан сообщением (необязательно)
+Нужен сервер, который работает постоянно (VPS, Fly.io и т. п.). Без него всё остальное работает.
 ```bash
-BOT_TOKEN=<token> WEBAPP_URL=<pages url> PORT=8080 python3 bot/server.py
+BOT_TOKEN=<token> WEBAPP_URL=<адрес сайта> PORT=8080 python3 server.py
 ```
-Put the bot's public HTTPS URL into `docs/config.js` (`BOT_API_URL`), commit, and turn on the Adhan switch in the app's settings.
-Users must press Start on the bot once.
+Затем укажите публичный HTTPS-адрес сервера в `config.js` (`BOT_API_URL`) — в настройках появится переключатель «Азан». Пользователь должен один раз нажать Start у бота.
 
-## Tests
+## Тесты
 ```bash
-python3 -m unittest discover -s bot -v
+node --test
+python3 -m unittest test_server -v
 ```
 
-## Data (loaded at runtime, nothing bundled)
-Aladhan API (prayer times), alquran.cloud (text, translations), islamic.network (audio), Open-Meteo (city search).
-Check each source's terms before a commercial launch.
-
-## Not built
-Dua, Names of Allah, group dhikr, guided rakah prompts, share-as-image, explicit offline download, offline audio.
-Tested in a desktop browser and with unit tests, not yet inside the real Telegram app.
+## Данные
+Aladhan API (время намаза, 99 имён), alquran.cloud (текст и переводы), islamic.network (аудио), Open-Meteo (поиск города). Перед коммерческим использованием проверьте условия каждого источника.

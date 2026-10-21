@@ -1,2 +1,17 @@
-{ "name": "Nur Salah", "short_name": "Nur Salah", "start_url": ".", "display": "standalone",
-  "background_color": "#0f2a26", "theme_color": "#0f2a26", "icons": [] }
+{
+  "name": "Base Islam",
+  "short_name": "Base Islam",
+  "description": "Время намаза, Коран с переводом и аудио, кибла, зикр и 99 имён Аллаха.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f1e9",
+  "theme_color": "#163f35",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

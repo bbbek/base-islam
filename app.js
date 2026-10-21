@@ -1,58 +1,101 @@
-/* Nur Salah: prayer times, Quran, dhikr, Qibla as a Telegram Mini App. No build step. */
+/* Base Islam: prayer times, Quran, dhikr, Qibla and the 99 Names. Telegram Mini App and PWA, no build step. Pure helpers live in lib.js. */
 (() => {
 'use strict';
-const tg = window.Telegram && window.Telegram.WebApp;
+const { PRAYERS, ADHAN, TRANSLATIONS, qiblaBearing, nowIn, hm, fmtHM, fmtHMS, parseMonth, nextPrayer, splitBasmala, surahUrl, surahFromUrl, nameOfDay, esc, pool } = window.BI;
+const NAMES = window.BI_NAMES || [];
+const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
+const inTg = !!(tg && tg.initData);
 if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view'), player = $('#player');
+const VERSION = '2.0.0';
 
 // ---------- i18n ----------
 const I18N = {
   ru: {
     home: 'Намаз', quran: 'Коран', dhikr: 'Зикр', qibla: 'Кибла', more: 'Ещё',
-    next: 'Следующий намаз', in: 'через', fajr: 'Фаджр', sunrise: 'Восход', dhuhr: 'Зухр', asr: 'Аср', maghrib: 'Магриб', isha: 'Иша',
-    loading: 'Загрузка…', offline: 'Нет сети. Показаны сохранённые данные.', fail: 'Не удалось загрузить',
-    city: 'Город', search: 'Найти город', useGps: 'Моё местоположение', method: 'Метод расчёта', madhab: 'Мазхаб (Аср)',
-    shafii: 'Шафи’и, малики, ханбали', hanafi: 'Ханафи', lang: 'Язык', calendar: 'Календарь', favorites: 'Избранное и заметки',
-    settings: 'Настройки', adhanBot: 'Азан сообщением от бота', adhanOff: 'Бот не подключён (нужен BOT_API_URL)',
-    adhanOn: 'Включено', adhanSaved: 'Азан включён', adhanStopped: 'Азан выключен',
-    surahs: 'Суры', resume: 'Продолжить чтение', ayah: 'Аят', translation: 'Перевод', translit: 'Транслитерация', reciter: 'Чтец',
-    play: 'Слушать', pause: 'Пауза', fav: 'В избранное', unfav: 'Убрать', note: 'Заметка', share: 'Поделиться', copy: 'Копировать',
-    copied: 'Скопировано', noteQ: 'Ваша заметка к аяту', empty: 'Пока пусто', font: 'Размер шрифта', save: 'Сохранить для офлайн', saved: 'Сохранено офлайн',
-    back: 'Назад', today: 'Сегодня', reset: 'Сбросить', goal: 'Цель', done: 'Цель достигнута',
-    qiblaDir: 'Направление на Каабу', degrees: 'от севера', compassOn: 'Включить компас', noSensor: 'Датчик компаса недоступен. Поверните телефон так, чтобы север был сверху, и ориентируйтесь по углу.',
-    locDenied: 'Нет доступа к геолокации. Выберите город вручную.', found: 'Найдено', notFound: 'Ничего не найдено',
-    hijri: 'по хиджре', trademark: 'Данные: Aladhan, alquran.cloud, islamic.network',
+    next: 'Следующий намаз', at: 'в', fajr: 'Фаджр', sunrise: 'Восход', dhuhr: 'Зухр', asr: 'Аср', maghrib: 'Магриб', isha: 'Иша',
+    loading: 'Загрузка…', offline: 'Нет сети — показаны сохранённые данные', fail: 'Не удалось загрузить', retry: 'Повторить',
+    failHint: 'Проверьте интернет. Время намаза на этот месяц сохранится после первой загрузки.',
+    city: 'Город', search: 'Найти город', useGps: 'Моё местоположение', myPlace: 'Моё местоположение', method: 'Метод расчёта', madhab: 'Мазхаб для Асра',
+    shafii: 'Шафиитский и др.', hanafi: 'Ханафитский', lang: 'Язык', calendar: 'Календарь на месяц', favorites: 'Избранное и заметки',
+    settings: 'Настройки', location: 'Местоположение', prayerSet: 'Расчёт времени', look: 'Оформление', theme: 'Тема', auto: 'Авто', light: 'Светлая', dark: 'Тёмная',
+    adhanBot: 'Азан сообщением от бота', adhanOff: 'Бот азана не подключён', adhanSaved: 'Азан включён', adhanStopped: 'Азан выключен',
+    surahs: 'Суры', searchSurah: 'Название или номер суры', resume: 'Продолжить чтение', ayah: 'Аят', ayahs: 'аятов', reciter: 'Чтец',
+    meccan: 'Мекканская', medinan: 'Мединская',
+    play: 'Слушать', pause: 'Пауза', fav: 'В избранное', unfav: 'Убрать из избранного', note: 'Заметка', share: 'Поделиться', copy: 'Копировать',
+    copied: 'Скопировано', notePh: 'Ваша заметка к аяту', save: 'Сохранить', cancel: 'Отмена', del: 'Удалить', empty: 'Пока пусто',
+    emptyFav: 'Отмечайте аяты звёздочкой или добавляйте заметки во время чтения — они появятся здесь.',
+    smaller: 'Меньше', bigger: 'Больше', back: 'Назад', reset: 'Сбросить', goal: 'из', done: 'Цель достигнута. Да примет Аллах.',
+    offlineTitle: 'Чтение без интернета', dlAll: 'Скачать весь Коран', dlSize: 'Арабский текст, перевод и транслитерация, ≈ 6 МБ',
+    dlNow: 'Скачивание', dlDone: 'Весь Коран доступен офлайн', dlSome: 'Сохранено сур', dlFail: 'Не удалось скачать сур', savedOff: 'Сохранено офлайн',
+    audioNet: 'Аудио работает только при подключении к интернету',
+    qiblaDir: 'Направление на Каабу', degrees: 'от севера по часовой стрелке', compassOn: 'Включить компас', compassHint: 'Держите телефон горизонтально. Стрелка покажет направление на Каабу.',
+    noSensor: 'Компас недоступен на этом устройстве. Найдите север и отложите указанный угол по часовой стрелке.',
+    locDenied: 'Нет доступа к геолокации. Выберите город вручную.', notFound: 'Ничего не найдено',
+    setCity: 'Укажите свой город', setCityHint: 'Сейчас время показано для Мекки. Выберите город или включите геолокацию.',
+    names: '99 имён Аллаха', namesSub: 'Аль-Асма уль-Хусна', nameDay: 'Имя дня', searchName: 'Поиск по имени или значению',
+    data: 'Данные: Aladhan, alquran.cloud, islamic.network, Open-Meteo', version: 'Версия',
+    months: ['Мухаррам', 'Сафар', 'Раби аль-авваль', 'Раби ас-сани', 'Джумада аль-уля', 'Джумада ас-сания', 'Раджаб', 'Шаабан', 'Рамадан', 'Шавваль', 'Зуль-каада', 'Зуль-хиджа'],
+    ah: 'г. х.', day: 'День',
   },
   en: {
     home: 'Prayer', quran: 'Quran', dhikr: 'Dhikr', qibla: 'Qibla', more: 'More',
-    next: 'Next prayer', in: 'in', fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha',
-    loading: 'Loading…', offline: 'Offline. Showing saved data.', fail: 'Could not load',
-    city: 'City', search: 'Find city', useGps: 'Use my location', method: 'Calculation method', madhab: 'Madhab (Asr)',
-    shafii: 'Shafi’i, Maliki, Hanbali', hanafi: 'Hanafi', lang: 'Language', calendar: 'Calendar', favorites: 'Favorites and notes',
-    settings: 'Settings', adhanBot: 'Adhan message from the bot', adhanOff: 'Bot not connected (set BOT_API_URL)',
-    adhanOn: 'On', adhanSaved: 'Adhan enabled', adhanStopped: 'Adhan disabled',
-    surahs: 'Surahs', resume: 'Continue reading', ayah: 'Ayah', translation: 'Translation', translit: 'Transliteration', reciter: 'Reciter',
-    play: 'Play', pause: 'Pause', fav: 'Favorite', unfav: 'Remove', note: 'Note', share: 'Share', copy: 'Copy',
-    copied: 'Copied', noteQ: 'Your note for this ayah', empty: 'Nothing yet', font: 'Font size', save: 'Save for offline', saved: 'Saved offline',
-    back: 'Back', today: 'Today', reset: 'Reset', goal: 'Goal', done: 'Goal reached',
-    qiblaDir: 'Direction to the Kaaba', degrees: 'from north', compassOn: 'Enable compass', noSensor: 'No compass sensor. Point your phone so north is up and use the angle.',
-    locDenied: 'Location access denied. Pick a city manually.', found: 'Found', notFound: 'Nothing found',
-    hijri: 'Hijri', trademark: 'Data: Aladhan, alquran.cloud, islamic.network',
+    next: 'Next prayer', at: 'at', fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha',
+    loading: 'Loading…', offline: 'Offline — showing saved data', fail: 'Could not load', retry: 'Try again',
+    failHint: 'Check your connection. This month’s prayer times are kept after the first load.',
+    city: 'City', search: 'Find a city', useGps: 'Use my location', myPlace: 'My location', method: 'Calculation method', madhab: 'Madhab for Asr',
+    shafii: 'Shafi’i and others', hanafi: 'Hanafi', lang: 'Language', calendar: 'Monthly timetable', favorites: 'Bookmarks and notes',
+    settings: 'Settings', location: 'Location', prayerSet: 'Prayer times', look: 'Appearance', theme: 'Theme', auto: 'Auto', light: 'Light', dark: 'Dark',
+    adhanBot: 'Adhan message from the bot', adhanOff: 'Adhan bot is not connected', adhanSaved: 'Adhan enabled', adhanStopped: 'Adhan disabled',
+    surahs: 'Surahs', searchSurah: 'Surah name or number', resume: 'Continue reading', ayah: 'Ayah', ayahs: 'ayahs', reciter: 'Reciter',
+    meccan: 'Meccan', medinan: 'Medinan',
+    play: 'Play', pause: 'Pause', fav: 'Bookmark', unfav: 'Remove bookmark', note: 'Note', share: 'Share', copy: 'Copy',
+    copied: 'Copied', notePh: 'Your note for this ayah', save: 'Save', cancel: 'Cancel', del: 'Delete', empty: 'Nothing yet',
+    emptyFav: 'Bookmark ayahs with the star or add notes while reading — they will appear here.',
+    smaller: 'Smaller', bigger: 'Larger', back: 'Back', reset: 'Reset', goal: 'of', done: 'Goal reached. May Allah accept it.',
+    offlineTitle: 'Read without internet', dlAll: 'Download the whole Quran', dlSize: 'Arabic, translation and transliteration, ≈ 6 MB',
+    dlNow: 'Downloading', dlDone: 'The whole Quran is available offline', dlSome: 'Surahs saved', dlFail: 'Could not download surahs', savedOff: 'Saved offline',
+    audioNet: 'Audio needs an internet connection',
+    qiblaDir: 'Direction to the Kaaba', degrees: 'clockwise from north', compassOn: 'Enable compass', compassHint: 'Hold the phone flat. The arrow points to the Kaaba.',
+    noSensor: 'No compass on this device. Find north and turn clockwise by the angle shown.',
+    locDenied: 'Location access denied. Pick a city manually.', notFound: 'Nothing found',
+    setCity: 'Set your city', setCityHint: 'Times are shown for Makkah. Pick your city or use your location.',
+    names: '99 Names of Allah', namesSub: 'Al-Asma ul-Husna', nameDay: 'Name of the day', searchName: 'Search by name or meaning',
+    data: 'Data: Aladhan, alquran.cloud, islamic.network, Open-Meteo', version: 'Version',
+    months: ['Muharram', 'Safar', 'Rabi al-Awwal', 'Rabi al-Thani', 'Jumada al-Ula', 'Jumada al-Akhirah', 'Rajab', 'Shaban', 'Ramadan', 'Shawwal', 'Dhul-Qadah', 'Dhul-Hijjah'],
+    ah: 'AH', day: 'Day',
   },
 };
-const TRANSLATIONS = { ru: 'ru.kuliev', en: 'en.sahih' };
-const METHODS = [[3, 'Muslim World League'], [2, 'ISNA (North America)'], [4, 'Umm al-Qura (Makkah)'], [5, 'Egyptian General Authority'],
-  [1, 'Karachi (Univ. of Islamic Sciences)'], [13, 'Diyanet (Turkey)'], [14, 'Spiritual Admin. of Muslims of Russia'], [0, 'Jafari (Shia Ithna-Ashari)']];
+const METHODS = [[3, 'Muslim World League'], [14, 'ДУМ России / Spiritual Admin. of Muslims of Russia'], [13, 'Diyanet (Türkiye)'], [2, 'ISNA (North America)'],
+  [4, 'Umm al-Qura (Makkah)'], [5, 'Egyptian General Authority'], [1, 'Karachi (Univ. of Islamic Sciences)'], [0, 'Jafari (Shia Ithna-Ashari)']];
 // [id, name, kbps]: bitrates verified against the audio CDN (some reciters only exist at 64).
 const RECITERS = [['ar.alafasy', 'Mishary Alafasy', 128], ['ar.husary', 'Mahmoud Khalil Al-Husary', 128], ['ar.abdulsamad', 'Abdul Basit Abdul Samad', 64],
   ['ar.abdurrahmaansudais', 'Abdurrahman As-Sudais', 64], ['ar.mahermuaiqly', 'Maher Al-Muaiqly', 128]];
-const DHIKR = [['سبحان الله', 33], ['الحمد لله', 33], ['الله أكبر', 34], ['لا إله إلا الله', 100], ['أستغفر الله', 100]];
-const KAABA = { lat: 21.4225, lon: 39.8262 };
+// [arabic, transliteration, ru, en, goal]
+const DHIKR = [['سبحان الله', 'Subhanallah', 'Пречист Аллах', 'Glory be to Allah', 33], ['الحمد لله', 'Alhamdulillah', 'Хвала Аллаху', 'All praise is due to Allah', 33],
+  ['الله أكبر', 'Allahu akbar', 'Аллах велик', 'Allah is the Greatest', 34], ['لا إله إلا الله', 'La ilaha illallah', 'Нет божества, кроме Аллаха', 'There is no god but Allah', 100],
+  ['أستغفر الله', 'Astaghfirullah', 'Прошу прощения у Аллаха', 'I seek Allah’s forgiveness', 100]];
+const ICON = {
+  pin: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
+  back: '<svg class="ico" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  play: '<svg class="ico" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg>',
+  pause: '<svg class="ico" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>',
+  star: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
+  note: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 4.5h10l4 4v11H5z"/><path d="M8.5 12h7M8.5 15.5h5"/></svg>',
+  share: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5.5 13v6.5h13V13"/></svg>',
+  copy: '<svg class="ico" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/></svg>',
+  down: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>',
+  check: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  search: '<svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>',
+  cal: '<svg class="ico" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
+  star8: '<svg class="ico" viewBox="-12 -12 24 24"><rect x="-6.5" y="-6.5" width="13" height="13"/><rect x="-6.5" y="-6.5" width="13" height="13" transform="rotate(45)"/></svg>',
+};
 
 // ---------- storage (localStorage + Telegram CloudStorage) ----------
-const KEY = 'ns:';
-const cloud = tg && tg.initData && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9') ? tg.CloudStorage : null;
+// The "ns:" prefix and cache names come from the app's previous name; they stay so existing users keep their data.
+const KEY = 'ns:', DATA_CACHE = 'ns-data-v1';
+const cloud = inTg && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9') ? tg.CloudStorage : null;
 const store = {
   get(k, d) { try { const v = localStorage.getItem(KEY + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) {
@@ -61,73 +104,117 @@ const store = {
     if (cloud && s.length < 3900 && /^(settings|pos|dhikr|favs|n_)/.test(k)) { try { cloud.setItem(k.slice(0, 128), s); } catch (e) {} }
   },
   del(k) { try { localStorage.removeItem(KEY + k); } catch (e) {} if (cloud) { try { cloud.removeItem(k); } catch (e) {} } },
+  keys(prefix) { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(KEY + prefix)) out.push(k.slice(KEY.length)); } } catch (e) {} return out; },
 };
 function cloudPull() {
   return new Promise(res => {
     if (!cloud) return res();
+    const done = setTimeout(res, 2500); // never block start-up on a slow CloudStorage
     try {
       cloud.getKeys((e, keys) => {
-        if (e || !keys || !keys.length) return res();
+        if (e || !keys || !keys.length) { clearTimeout(done); return res(); }
         cloud.getItems(keys.slice(0, 100), (e2, items) => {
           if (!e2 && items) for (const k of Object.keys(items)) {
-            if (localStorage.getItem(KEY + k) == null && items[k]) { try { localStorage.setItem(KEY + k, items[k]); } catch (x) {} }
+            try { if (localStorage.getItem(KEY + k) == null && items[k]) localStorage.setItem(KEY + k, items[k]); } catch (x) {}
           }
-          res();
+          clearTimeout(done); res();
         });
       });
-    } catch (e) { res(); }
+    } catch (e) { clearTimeout(done); res(); }
   });
 }
 
 // ---------- state ----------
-const defaults = { lang: 'ru', method: 3, school: 0, size: 26, reciter: 'ar.alafasy', adhan: false,
-  loc: { name: 'Mecca', lat: 21.4225, lon: 39.8262 } };
+const defaults = { lang: 'ru', method: 3, school: 0, size: 28, reciter: 'ar.alafasy', adhan: false, theme: 'auto',
+  loc: { name: 'Makkah', lat: 21.4225, lon: 39.8262 } };
 const S = Object.assign({}, defaults, store.get('settings', {}));
-if (!I18N[S.lang]) S.lang = 'ru';
+if (S.locSet === undefined) S.locSet = !['Mecca', 'Makkah'].includes(S.loc && S.loc.name); // the old version saved its Mecca default too
+const fixSettings = () => { if (!I18N[S.lang]) S.lang = 'ru'; if (!['auto', 'light', 'dark'].includes(S.theme)) S.theme = 'auto'; };
+fixSettings();
 const t = k => (I18N[S.lang] && I18N[S.lang][k]) || I18N.en[k] || k;
 const saveSettings = () => store.set('settings', S);
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let toastTimer;
-function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 1800); }
-function haptic(kind = 'light') { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind); } catch (e) {} if (!tg && navigator.vibrate) navigator.vibrate(8); }
-async function getJSON(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 2200); }
+function haptic(kind = 'light') { try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred(kind); else if (navigator.vibrate) navigator.vibrate(kind === 'heavy' ? 30 : 8); } catch (e) {} }
+function debounce(fn, ms) { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; }
+
+// ---------- theme ----------
+const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+  const dark = S.theme === 'dark' || (S.theme === 'auto' && (inTg ? tg.colorScheme === 'dark' : darkMQ.matches));
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.lang = S.lang;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  document.querySelectorAll('meta[name=theme-color]').forEach(m => { m.content = bg; });
+  if (inTg) { try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); if (tg.setBottomBarColor) tg.setBottomBarColor(bg); } catch (e) {} }
+}
+darkMQ.addEventListener && darkMQ.addEventListener('change', applyTheme);
+if (tg && tg.onEvent) tg.onEvent('themeChanged', applyTheme);
+
+// ---------- network ----------
+async function fetchT(url, ms = 12000, opts = {}) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const h = ctl && setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, Object.assign({ signal: ctl && ctl.signal }, opts)); } finally { clearTimeout(h); }
+}
+// JSON with a timeout and one retry on network errors and 5xx.
+async function getJSON(url, tries = 2) {
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetchT(url);
+      if (r.status >= 500 && i + 1 < tries) throw new Error('HTTP ' + r.status);
+      if (!r.ok) { const e = new Error('HTTP ' + r.status); e.final = true; throw e; }
+      return await r.json();
+    } catch (e) {
+      if (e.final || i + 1 >= tries) throw e;
+      await new Promise(res => setTimeout(res, 700));
+    }
+  }
+}
+const hasCaches = typeof caches !== 'undefined' && window.isSecureContext;
+// Cache-first JSON for data that never changes (Quran text). Works offline once saved.
+// Retries rate limits (the API allows ~12 requests a second), server errors and network errors with growing pauses.
+async function cachedJSON(url, tries = 3) {
+  if (hasCaches) {
+    try { const hit = await (await caches.open(DATA_CACHE)).match(url); if (hit) return await hit.json(); } catch (e) {}
+  }
+  for (let i = 0; ; i++) {
+    let r;
+    try { r = await fetchT(url, 20000); } catch (e) { if (i + 1 >= tries) throw e; }
+    if (r && r.ok) {
+      if (hasCaches) { try { await (await caches.open(DATA_CACHE)).put(url, r.clone()); } catch (e) {} }
+      return r.json();
+    }
+    if (r && r.status !== 429 && r.status < 500) throw new Error('HTTP ' + r.status);
+    if (i + 1 >= tries) throw new Error('HTTP ' + (r ? r.status : 'network'));
+    await new Promise(res => setTimeout(res, 1000 * (i + 1) + Math.random() * 500));
+  }
+}
+function netBanner() { const el = $('#net'); el.textContent = t('offline'); el.hidden = navigator.onLine !== false; }
+window.addEventListener('online', netBanner); window.addEventListener('offline', netBanner);
+const skeleton = n => Array.from({ length: n }, (_, i) => `<div class="skel" style="width:${90 - (i % 3) * 18}%"></div>`).join('');
+function failState(el, retry) {
+  el.innerHTML = `<div class="card state"><b>${t('fail')}</b><p>${t('failHint')}</p><button class="btn primary" data-retry>${t('retry')}</button></div>`;
+  el.querySelector('[data-retry]').onclick = retry;
 }
 
 // ---------- prayer times ----------
-const PRAYERS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'];
-const API_KEYS = { fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha' };
-function nowIn(tz) {
-  const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date());
-  const g = type => +p.find(x => x.type === type).value;
-  return { y: g('year'), m: g('month'), d: g('day'), secs: g('hour') * 3600 + g('minute') * 60 + g('second') };
-}
-const hm = s => { const [h, m] = String(s).slice(0, 5).split(':').map(Number); return h * 3600 + m * 60; };
-const fmtHM = secs => { const m = Math.round(secs / 60) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
-const fmtHMS = secs => { secs = Math.max(0, Math.floor(secs)); return [Math.floor(secs / 3600), Math.floor(secs % 3600 / 60), secs % 60].map(n => String(n).padStart(2, '0')).join(':'); };
 function calKey(y, m) { return `cal:${S.loc.lat.toFixed(2)},${S.loc.lon.toFixed(2)}:${S.method}:${S.school}:${y}-${m}`; }
 async function month(y, m) {
   const key = calKey(y, m);
   const hit = store.get(key);
-  if (hit) return hit;
-  const url = `https://api.aladhan.com/v1/calendar/${y}/${m}?latitude=${S.loc.lat}&longitude=${S.loc.lon}&method=${S.method}&school=${S.school}`;
-  const j = await getJSON(url);
-  const out = { tz: j.data[0].meta.timezone, days: j.data.map(x => ({
-    d: +x.date.gregorian.day, hijri: `${x.date.hijri.day} ${x.date.hijri.month.en} ${x.date.hijri.year}`,
-    t: PRAYERS.map(p => hm(x.timings[API_KEYS[p]])) })) };
+  if (hit && hit.days && hit.days[0] && typeof hit.days[0].hijri === 'object') return hit;
+  const j = await getJSON(`https://api.aladhan.com/v1/calendar/${y}/${m}?latitude=${S.loc.lat}&longitude=${S.loc.lon}&method=${S.method}&school=${S.school}`);
+  const out = parseMonth(j);
   store.set(key, out);
   evictOldCalendars(key);
   return out;
 }
 function evictOldCalendars(keep) {
-  try {
-    const keys = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(KEY + 'cal:')) keys.push(k); }
-    keys.filter(k => k !== KEY + keep).slice(0, Math.max(0, keys.length - 8)).forEach(k => localStorage.removeItem(k));
-  } catch (e) {}
+  const keys = store.keys('cal:').filter(k => k !== keep);
+  keys.slice(0, Math.max(0, keys.length - 6)).forEach(k => { try { localStorage.removeItem(KEY + k); } catch (e) {} });
 }
+const addDays = (n, k) => { const d = new Date(Date.UTC(n.y, n.m - 1, n.d + k)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; };
 async function today() {
   // The city's time zone is only known after the first fetch, so start from the device zone and correct it.
   let n = nowIn(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -136,292 +223,420 @@ async function today() {
   if (local.y !== n.y || local.m !== n.m) mo = await month(local.y, local.m);
   n = local;
   const day = mo.days.find(x => x.d === n.d) || mo.days[0];
-  const next = new Date(Date.UTC(n.y, n.m - 1, n.d + 1));
-  const tm = next.getUTCMonth() + 1 === n.m ? mo : await month(next.getUTCFullYear(), next.getUTCMonth() + 1);
-  const tmDay = tm.days.find(x => x.d === next.getUTCDate()) || day;
-  return { tz: mo.tz, day, tomorrow: tmDay, n };
+  const nx = addDays(n, 1);
+  let tomorrow = day;
+  try { const tm = nx.m === n.m ? mo : await month(nx.y, nx.m); tomorrow = tm.days.find(x => x.d === nx.d) || day; } catch (e) { /* offline at month end: reuse today's Fajr */ }
+  // Keep next month ready for offline use.
+  if (n.d >= 20 && nx.m === n.m) { const nm = addDays({ y: n.y, m: n.m, d: 1 }, 32); month(nm.y, nm.m).catch(() => {}); }
+  return { tz: mo.tz, day, tomorrow, n };
 }
-function nextPrayer(info) {
-  const secs = nowIn(info.tz).secs;
-  const adhan = [0, 2, 3, 4, 5]; // skip sunrise
-  for (const i of adhan) if (info.day.t[i] > secs) return { i, left: info.day.t[i] - secs };
-  return { i: 0, left: 86400 - secs + info.tomorrow.t[0] };
-}
-
-// ---------- Qibla ----------
-function qiblaBearing(lat, lon) {
-  const r = Math.PI / 180, dl = (KAABA.lon - lon) * r;
-  const y = Math.sin(dl) * Math.cos(KAABA.lat * r);
-  const x = Math.cos(lat * r) * Math.sin(KAABA.lat * r) - Math.sin(lat * r) * Math.cos(KAABA.lat * r) * Math.cos(dl);
-  return (Math.atan2(y, x) / r + 360) % 360;
-}
+const hijriStr = h => `${h.d} ${t('months')[h.m - 1] || ''} ${h.y} ${t('ah')}`;
+const gregStr = n => { try { return new Intl.DateTimeFormat(S.lang, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(n.y, n.m - 1, n.d))); } catch (e) { return `${n.d}.${n.m}.${n.y}`; } };
 
 // ---------- shell ----------
-let tab = 'home', timers = [], navId = 0;
-function clearTimers() { timers.forEach(clearInterval); timers = []; }
+let tab = 'home', navId = 0, cleanups = [];
+const onLeave = fn => cleanups.push(fn);
 function renderTabs() {
-  document.querySelectorAll('#tabs button').forEach(b => { b.textContent = t(b.dataset.tab); b.classList.toggle('on', b.dataset.tab === tab); });
+  document.querySelectorAll('#tabs button').forEach(b => { b.querySelector('span').textContent = t(b.dataset.tab); b.classList.toggle('on', b.dataset.tab === tab); b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'); });
 }
+const VIEWS = {};
+const PARENT = { reader: 'quran', favs: 'more', cal: 'more', names: 'more' };
+let backTo = null;
 function go(name, arg) {
-  clearTimers(); navId++; tab = name.split(':')[0]; renderTabs(); window.scrollTo(0, 0);
-  ({ home: viewHome, quran: viewQuran, dhikr: viewDhikr, qibla: viewQibla, more: viewMore, reader: viewReader, favs: viewFavs, cal: viewCal }[name] || viewHome)(arg);
+  cleanups.forEach(f => { try { f(); } catch (e) {} }); cleanups = [];
+  navId++;
+  tab = { reader: 'quran', favs: 'more', cal: 'more', names: 'more' }[name] || name;
+  renderTabs(); window.scrollTo(0, 0);
+  backTo = PARENT[name] ? (arg && arg.from) || PARENT[name] : null;
+  if (tg && tg.BackButton) { try { backTo ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) {} }
+  (VIEWS[name] || VIEWS.home)(arg || {});
 }
+if (tg && tg.BackButton) tg.BackButton.onClick(() => backTo && go(backTo));
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
+const topBar = (title, extra = '') => `<div class="top">${inTg ? '' : `<button class="btn icon ghost" data-back aria-label="${t('back')}">${ICON.back}</button>`}<h1>${title}</h1>${extra}</div>`;
+function wireBack() { const b = $('[data-back]'); if (b) b.onclick = () => go(backTo || 'home'); }
 
 // ---------- Home ----------
-async function viewHome() {
+VIEWS.home = async function viewHome() {
   const id = navId;
-  view.innerHTML = `<h1>${esc(S.loc.name)}</h1><div class="card hint">${t('loading')}</div>`;
+  view.innerHTML = `<div class="hero"><button class="loc">${ICON.pin}${esc(S.loc.name)}</button><div class="label">${t('next')}</div><div class="name">&nbsp;</div><div class="big">--:--:--</div></div><div class="card">${skeleton(6)}</div>`;
   let info;
   try { info = await today(); } catch (e) {
     if (id !== navId) return;
-    view.innerHTML = `<h1>${esc(S.loc.name)}</h1><div class="card">${t('fail')}. ${navigator.onLine ? '' : t('offline')}</div>`; return;
+    view.innerHTML = `<h1>${esc(S.loc.name)}</h1><div id="err"></div>`;
+    return failState($('#err'), () => go('home'));
   }
-  const draw = () => {
-    const np = nextPrayer(info);
-    const rows = PRAYERS.map((p, i) => {
-      const cls = i === np.i ? 'next' : (info.day.t[i] <= nowIn(info.tz).secs && !(np.i === 0 && i === 0 && np.left > 0 && info.day.t[0] > nowIn(info.tz).secs) ? 'past' : '');
-      return `<div class="prayer ${cls}"><span>${t(p)}</span><span>${fmtHM(info.day.t[i])}</span></div>`;
-    }).join('');
-    view.innerHTML = `<h1>${esc(S.loc.name)}</h1>
-      <div class="card"><div class="hint">${t('next')}: ${t(PRAYERS[np.i])}</div>
-        <div class="big" id="cd">${fmtHMS(np.left)}</div>
-        <div class="hint">${esc(info.day.hijri)} (${t('hijri')})</div></div>
-      <div class="card">${rows}</div>`;
-  };
   if (id !== navId) return;
+  let shownNext = -1, shownDay = info.n.d;
+  const draw = () => {
+    const secs = nowIn(info.tz).secs, np = nextPrayer(info.day.t, info.tomorrow.t, secs);
+    shownNext = np.i;
+    const nextTime = np.tomorrow ? info.tomorrow.t[0] : info.day.t[np.i];
+    const rows = PRAYERS.map((p, i) => {
+      const cls = i === 1 ? 'sun' : i === np.i && !np.tomorrow ? 'next' : info.day.t[i] <= secs ? 'past' : '';
+      return `<div class="prayer ${cls}"><span>${t(p)}</span><span class="t">${fmtHM(info.day.t[i])}</span></div>`;
+    }).join('');
+    const nm = NAMES[nameOfDay(info.n.y, info.n.m, info.n.d)];
+    view.innerHTML = `<div class="hero">
+        <button class="loc" id="loc">${ICON.pin}${esc(S.loc.name)}</button>
+        <div class="label">${t('next')}</div>
+        <div class="name">${t(PRAYERS[np.i])} · ${t('at')} ${fmtHM(nextTime)}</div>
+        <div class="big" id="cd" role="timer">${fmtHMS(np.left)}</div>
+        <div class="dates"><span>${esc(gregStr(info.n))}</span><span>${esc(hijriStr(info.day.hijri))}</span></div>
+      </div>
+      ${S.locSet ? '' : `<button class="card item" id="setc" style="padding:14px 16px"><span class="ok">${ICON.pin}</span><span class="grow"><b>${t('setCity')}</b><span class="sub">${t('setCityHint')}</span></span><span class="chev">›</span></button>`}
+      <div class="card prayers">${rows}</div>
+      ${nm ? `<h2>${t('nameDay')}</h2><button class="card daily" id="nd"><span class="ar">${nm[0]}</span><span class="grow"><b>${esc(nm[1])}</b><span class="sub hint">${esc(S.lang === 'ru' ? nm[3] : nm[2])}</span></span><span class="chev">›</span></button>` : ''}`;
+    $('#loc').onclick = () => go('more');
+    if ($('#setc')) $('#setc').onclick = () => go('more');
+    if ($('#nd')) $('#nd').onclick = () => go('names', { from: 'home' });
+  };
   draw();
-  timers.push(setInterval(() => {
-    const np = nextPrayer(info); const el = $('#cd');
-    if (el) { el.textContent = fmtHMS(np.left); if (np.left > 86300 || np.left === 0) draw(); } else clearTimers();
-  }, 1000));
-}
+  const timer = setInterval(() => {
+    const n = nowIn(info.tz);
+    if (n.d !== shownDay) { clearInterval(timer); return go('home'); } // new day: reload times
+    const np = nextPrayer(info.day.t, info.tomorrow.t, n.secs);
+    if (np.i !== shownNext) return draw();
+    const el = $('#cd'); if (el) el.textContent = fmtHMS(np.left);
+  }, 1000);
+  onLeave(() => clearInterval(timer));
+  // Returning to the app after a long pause: refresh immediately instead of waiting for the next tick.
+  const vis = () => { if (document.visibilityState === 'visible') draw(); };
+  document.addEventListener('visibilitychange', vis); onLeave(() => document.removeEventListener('visibilitychange', vis));
+};
 
 // ---------- Quran ----------
-let surahList = null, playing = null;
-async function getSurahs() { if (surahList) return surahList; surahList = (await getJSON('https://api.alquran.cloud/v1/surah')).data; return surahList; }
-async function viewQuran() {
+let surahList = null;
+async function getSurahs() { if (!surahList) surahList = (await cachedJSON('https://api.alquran.cloud/v1/surah')).data; return surahList; }
+async function savedSurahs() {
+  if (!hasCaches) return new Set();
+  try { const keys = await (await caches.open(DATA_CACHE)).keys(); return new Set(keys.map(r => surahFromUrl(r.url, S.lang)).filter(Boolean)); } catch (e) { return new Set(); }
+}
+const dl = { running: false, done: 0, total: 0 };
+async function downloadAll() {
+  if (dl.running) return;
+  const have = await savedSurahs();
+  const todo = Array.from({ length: 114 }, (_, i) => i + 1).filter(n => !have.has(n));
+  Object.assign(dl, { running: true, done: 0, total: todo.length });
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  const failed = await pool(todo, 2, n => cachedJSON(surahUrl(n, S.lang), 5), done => { dl.done = done; paintDl(); });
+  dl.running = false;
+  if (failed.length) toast(`${t('dlFail')}: ${failed.length}`); else toast(t('dlDone'));
+  if (tab === 'quran' && $('#sl')) VIEWS.quran();
+}
+function paintDl() { const b = $('#dlbar'), l = $('#dllabel'); if (b) b.style.width = (dl.total ? dl.done / dl.total * 100 : 0) + '%'; if (l) l.textContent = `${t('dlNow')}: ${dl.done} / ${dl.total}`; }
+VIEWS.quran = async function viewQuran() {
   const id = navId;
-  view.innerHTML = `<h1>${t('quran')}</h1><div class="card hint">${t('loading')}</div>`;
+  view.innerHTML = `<h1>${t('quran')}</h1><div class="card">${skeleton(8)}</div>`;
   let list;
-  try { list = await getSurahs(); } catch (e) { if (id !== navId) return; view.innerHTML = `<h1>${t('quran')}</h1><div class="card">${t('fail')}. ${t('offline')}</div>`; return; }
+  try { list = await getSurahs(); } catch (e) { if (id === navId) failState(view.querySelector('.card'), () => go('quran')); return; }
+  const saved = await savedSurahs();
   if (id !== navId) return;
   const pos = store.get('pos');
-  const resume = pos ? `<div class="card row"><div><div class="hint">${t('resume')}</div><b>${esc(list[pos.s - 1].englishName)}</b> · ${t('ayah')} ${pos.a}</div>
-    <button class="btn primary" id="resume">→</button></div>` : '';
-  view.innerHTML = `<h1>${t('quran')}</h1>${resume}<input id="q" placeholder="${t('surahs')}…" style="width:100%;margin-bottom:8px">
+  const resume = pos && list[pos.s - 1] ? `<button class="card item" id="resume" style="padding:14px 16px"><span class="grow"><span class="sub">${t('resume')}</span><b>${esc(list[pos.s - 1].englishName)}</b> · ${t('ayah')} ${pos.a}</span><span class="chev">›</span></button>` : '';
+  const all = saved.size >= 114;
+  const offline = !hasCaches ? '' : all
+    ? `<div class="card dl"><span class="ok">${ICON.check}</span><span class="grow">${t('dlDone')}</span></div>`
+    : `<div class="card"><div class="dl"><span class="grow"><b>${t('dlAll')}</b><span class="sub hint" id="dllabel">${dl.running ? '' : `${t('dlSize')}${saved.size ? ` · ${t('dlSome')}: ${saved.size}` : ''}`}</span></span>
+        <button class="btn primary icon" id="dlb" aria-label="${t('dlAll')}" ${dl.running ? 'disabled' : ''}>${ICON.down}</button></div>${dl.running ? '<div class="bar"><i id="dlbar"></i></div>' : ''}</div>`;
+  view.innerHTML = `<h1>${t('quran')}</h1>${resume}${offline}
+    <div class="field" style="margin:4px 0 12px"><input type="search" id="q" placeholder="${t('searchSurah')}" autocomplete="off" aria-label="${t('searchSurah')}"></div>
     <div class="card list" id="sl"></div>`;
+  if (dl.running) paintDl();
   const fill = f => {
-    $('#sl').innerHTML = list.filter(s => !f || (s.englishName + s.name + s.number).toLowerCase().includes(f))
-      .map(s => `<button class="item" data-s="${s.number}"><span><span class="num">${s.number}</span> ${esc(s.englishName)}
-        <span class="hint">· ${s.numberOfAyahs}</span></span><span class="ar" style="font-size:20px;line-height:1.4">${esc(s.name.replace('سورة', '').trim())}</span></button>`).join('');
+    const rows = list.filter(s => !f || `${s.number} ${s.englishName} ${s.englishNameTranslation} ${s.name}`.toLowerCase().includes(f));
+    $('#sl').innerHTML = rows.length ? rows.map(s => `<button class="item surah" data-s="${s.number}"><span class="num"><span>${s.number}</span></span>
+        <span class="grow"><b>${esc(s.englishName)}</b><span class="sub">${t(s.revelationType === 'Meccan' ? 'meccan' : 'medinan')} · ${s.numberOfAyahs} ${t('ayahs')}${saved.has(s.number) && !all ? ' · ✓' : ''}</span></span>
+        <span class="ar">${esc(s.name.replace('سُورَةُ', '').trim())}</span></button>`).join('') : `<div class="state hint">${t('notFound')}</div>`;
   };
   fill('');
   $('#q').addEventListener('input', e => fill(e.target.value.trim().toLowerCase()));
   $('#sl').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) go('reader', { s: +b.dataset.s }); });
-  if (pos) $('#resume').addEventListener('click', () => go('reader', { s: pos.s, a: pos.a }));
-}
+  if ($('#resume')) $('#resume').onclick = () => go('reader', { s: pos.s, a: pos.a });
+  if ($('#dlb')) $('#dlb').onclick = () => { downloadAll(); VIEWS.quran(); };
+};
 async function loadSurah(n) {
-  const tr = TRANSLATIONS[S.lang] || 'en.sahih';
-  const j = await getJSON(`https://api.alquran.cloud/v1/surah/${n}/editions/quran-uthmani,${tr},en.transliteration`);
+  const j = await cachedJSON(surahUrl(n, S.lang));
   const [ar, tl, tlit] = j.data;
-  // The API glues the basmala onto ayah 1 of every surah except 1 and 9; show it as its own line instead.
   return ar.ayahs.map((a, i) => {
-    let text = a.text, basmala = false;
-    if (a.numberInSurah === 1 && n !== 1 && n !== 9) {
-      const w = text.split(' '); text = w.slice(4).join(' ').trim(); basmala = w.slice(0, 4).join(' ');
-    }
-    return { n: a.number, a: a.numberInSurah, ar: text || a.text, basmala, tr: tl.ayahs[i].text, tlit: tlit.ayahs[i].text };
+    const b = splitBasmala(a.text, n, a.numberInSurah);
+    return { n: a.number, a: a.numberInSurah, ar: b.text || a.text, basmala: b.basmala, tr: tl.ayahs[i].text, tlit: tlit.ayahs[i].text };
   });
 }
 const favs = () => new Set(store.get('favs', []));
-async function viewReader({ s, a }) {
+
+// Audio: one queue for the whole app, so recitation continues while browsing.
+const audio = { s: 0, list: null, i: -1, title: '' };
+function markPlaying() {
+  document.querySelectorAll('.ayah.playing').forEach(e => e.classList.remove('playing'));
+  const pb = $('#pp'); if (pb) { pb.innerHTML = player.paused ? ICON.play : ICON.pause; pb.setAttribute('aria-label', t(player.paused ? 'play' : 'pause')); }
+  if (!audio.list || audio.i < 0 || player.paused) return;
+  const el = view.querySelector(`.ayah[data-s="${audio.s}"][data-a="${audio.list[audio.i].a}"]`);
+  if (el) { el.classList.add('playing'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+function playAt(i) {
+  if (!audio.list || i >= audio.list.length) { audio.i = -1; markPlaying(); return; }
+  audio.i = i;
+  const rc = RECITERS.find(r => r[0] === S.reciter) || RECITERS[0];
+  player.src = `https://cdn.islamic.network/quran/audio/${rc[2]}/${rc[0]}/${audio.list[i].n}.mp3`;
+  player.play().catch(() => toast(navigator.onLine === false ? t('audioNet') : t('fail')));
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.metadata = new MediaMetadata({ title: `${audio.title} ${audio.s}:${audio.list[i].a}`, artist: rc[1], album: 'Base Islam', artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] }); } catch (e) {}
+  }
+}
+player.addEventListener('ended', () => playAt(audio.i + 1));
+player.addEventListener('play', markPlaying); player.addEventListener('pause', markPlaying);
+player.addEventListener('error', () => { if (player.getAttribute('src')) { toast(navigator.onLine === false ? t('audioNet') : t('fail')); markPlaying(); } });
+if ('mediaSession' in navigator) {
+  try {
+    navigator.mediaSession.setActionHandler('nexttrack', () => playAt(audio.i + 1));
+    navigator.mediaSession.setActionHandler('previoustrack', () => playAt(Math.max(0, audio.i - 1)));
+  } catch (e) {}
+}
+
+VIEWS.reader = async function viewReader({ s, a }) {
   const id = navId;
   view.style.setProperty('--arsize', S.size + 'px');
-  view.innerHTML = `<div class="row"><button class="btn small" id="bk">← ${t('back')}</button><button class="btn small" id="sv">${t('save')}</button></div><h1 id="sn">${t('loading')}</h1><div id="ay"></div>`;
-  $('#bk').onclick = () => go('quran');
+  view.innerHTML = `${topBar(t('loading'))}<div class="card">${skeleton(10)}</div>`;
+  wireBack();
   let ayahs, meta;
-  try { [ayahs, meta] = await Promise.all([loadSurah(s), getSurahs()]); } catch (e) { if (id === navId) $('#sn').textContent = t('fail'); return; }
+  try { [ayahs, meta] = await Promise.all([loadSurah(s), getSurahs()]); } catch (e) { if (id === navId) failState(view.querySelector('.card'), () => go('reader', { s, a })); return; }
   if (id !== navId) return;
-  $('#sv').onclick = () => toast(t('saved'));
-  const m = meta[s - 1];
-  $('#sn').innerHTML = `${esc(m.englishName)} <span class="ar" style="font-size:24px">${esc(m.name)}</span>`;
-  const fv = favs();
-  const render = () => {
-    $('#ay').innerHTML = ayahs.map(x => {
-      const f = fv.has(s + ':' + x.a), note = store.get('n_' + s + ':' + x.a);
-      return `<div class="ayah" id="a${x.a}" data-a="${x.a}">${x.basmala ? `<div class="ar" style="text-align:center;color:var(--hint)">${esc(x.basmala)}</div>` : ''}<div class="ar">${esc(x.ar)} <span class="num">${x.a}</span></div>
-        <div class="tl">${esc(x.tlit)}</div><div class="tr">${esc(x.tr)}</div>
-        ${note ? `<div class="hint">📝 ${esc(note)}</div>` : ''}
-        <div class="acts"><button class="btn small" data-act="play">▶ ${t('play')}</button>
-        <button class="btn small" data-act="fav">${f ? '★ ' + t('unfav') : '☆ ' + t('fav')}</button>
-        <button class="btn small" data-act="note">📝 ${t('note')}</button>
-        <button class="btn small" data-act="share">${t('share')}</button>
-        <button class="btn small" data-act="copy">${t('copy')}</button></div></div>`;
-    }).join('') + `<div id="playbar"><select id="rc">${RECITERS.map(r => `<option value="${r[0]}" ${r[0] === S.reciter ? 'selected' : ''}>${r[1]}</option>`).join('')}</select>
-      <input type="range" id="fs" min="20" max="40" value="${S.size}" aria-label="${t('font')}" style="flex:1;padding:0"></div>`;
-    $('#rc').onchange = e => { S.reciter = e.target.value; saveSettings(); };
-    $('#fs').oninput = e => { S.size = +e.target.value; view.style.setProperty('--arsize', S.size + 'px'); saveSettings(); };
+  const m = meta[s - 1], fv = favs();
+  const ayahHtml = x => {
+    const key = s + ':' + x.a, note = store.get('n_' + key);
+    return `${x.basmala ? `<div class="basmala">${esc(x.basmala)}</div>` : ''}<div class="ayah" id="a${x.a}" data-s="${s}" data-a="${x.a}">
+      <div class="ar">${esc(x.ar)}<span class="end">${x.a}</span></div>
+      <div class="tl">${esc(x.tlit)}</div><div class="tr">${esc(x.tr)}</div>
+      <div class="note" ${note ? '' : 'hidden'}>${esc(note || '')}</div>
+      <div class="acts">
+        <button data-act="play" aria-label="${t('play')}">${ICON.play}</button>
+        <button data-act="fav" class="${fv.has(key) ? 'on' : ''}" aria-label="${t(fv.has(key) ? 'unfav' : 'fav')}" aria-pressed="${fv.has(key)}">${ICON.star}</button>
+        <button data-act="note" aria-label="${t('note')}">${ICON.note}</button>
+        <button data-act="share" aria-label="${t('share')}">${ICON.share}</button>
+        <button data-act="copy" aria-label="${t('copy')}">${ICON.copy}</button>
+      </div></div>`;
   };
-  render();
-  const find = n => ayahs.find(x => x.a === n);
-  $('#ay').addEventListener('click', e => {
+  view.innerHTML = `${topBar(`${s}. ${esc(m.englishName)}`)}
+    <div class="surah-head"><div class="ar">${esc(m.name)}</div><div class="hint">${esc(m.englishNameTranslation)} · ${t(m.revelationType === 'Meccan' ? 'meccan' : 'medinan')} · ${m.numberOfAyahs} ${t('ayahs')}</div></div>
+    <div id="ay">${ayahs.map(ayahHtml).join('')}</div><div class="reader-pad"></div>
+    <div id="playbar"><button class="btn primary icon" id="pp" aria-label="${t('play')}">${ICON.play}</button>
+      <select id="rc" aria-label="${t('reciter')}">${RECITERS.map(r => `<option value="${r[0]}" ${r[0] === S.reciter ? 'selected' : ''}>${r[1]}</option>`).join('')}</select>
+      <span class="size"><button class="btn icon" id="fsm" aria-label="${t('smaller')}">A−</button><button class="btn icon" id="fsp" aria-label="${t('bigger')}">A+</button></span></div>`;
+  wireBack();
+  markPlaying();
+  $('#rc').onchange = e => { S.reciter = e.target.value; saveSettings(); if (audio.s === s && !player.paused) playAt(audio.i); };
+  const size = d => { S.size = Math.min(44, Math.max(20, S.size + d)); view.style.setProperty('--arsize', S.size + 'px'); saveSettings(); };
+  $('#fsm').onclick = () => size(-2); $('#fsp').onclick = () => size(2);
+  let lastSeen = a || 1;
+  $('#pp').onclick = () => {
+    if (audio.s === s && audio.i >= 0 && player.getAttribute('src')) { player.paused ? player.play().catch(() => toast(t('audioNet'))) : player.pause(); return; }
+    Object.assign(audio, { s, list: ayahs, title: m.englishName }); playAt(Math.max(0, ayahs.findIndex(x => x.a === lastSeen)));
+  };
+  const ay = $('#ay');
+  ay.addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
-    const n = +b.closest('.ayah').dataset.a, x = find(n), id = s + ':' + n;
-    if (b.dataset.act === 'play') playFrom(ayahs, n);
-    if (b.dataset.act === 'fav') { fv.has(id) ? fv.delete(id) : fv.add(id); store.set('favs', [...fv]); render(); }
-    if (b.dataset.act === 'note') {
-      const v = prompt(t('noteQ'), store.get('n_' + id, '')); if (v === null) return;
-      v.trim() ? store.set('n_' + id, v.trim()) : store.del('n_' + id); render();
-    }
-    if (b.dataset.act === 'share' || b.dataset.act === 'copy') {
+    const box = b.closest('.ayah'), n = +box.dataset.a, x = ayahs.find(y => y.a === n), key = s + ':' + n;
+    const act = b.dataset.act;
+    if (act === 'play') {
+      if (audio.s === s && audio.list && audio.list[audio.i] && audio.list[audio.i].a === n && !player.paused) return player.pause();
+      Object.assign(audio, { s, list: ayahs, title: m.englishName }); playAt(ayahs.indexOf(x));
+    } else if (act === 'fav') {
+      const f = favs(); f.has(key) ? f.delete(key) : f.add(key); store.set('favs', [...f]);
+      const on = f.has(key); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', t(on ? 'unfav' : 'fav')); haptic();
+    } else if (act === 'note') {
+      if (box.querySelector('.noteform')) return;
+      const nb = box.querySelector('.note');
+      const form = document.createElement('div'); form.className = 'noteform';
+      form.innerHTML = `<textarea maxlength="1500" placeholder="${t('notePh')}" aria-label="${t('notePh')}"></textarea><div class="row">${store.get('n_' + key) ? `<button class="btn small" data-n="del">${t('del')}</button>` : ''}<button class="btn small" data-n="cancel">${t('cancel')}</button><button class="btn small primary" data-n="save">${t('save')}</button></div>`;
+      form.querySelector('textarea').value = store.get('n_' + key, '');
+      box.querySelector('.acts').before(form); nb.hidden = true; form.querySelector('textarea').focus();
+      form.onclick = ev => {
+        const k = ev.target.closest('[data-n]'); if (!k) return;
+        let v = k.dataset.n === 'save' ? form.querySelector('textarea').value.trim() : k.dataset.n === 'del' ? '' : null;
+        if (v !== null) { v ? store.set('n_' + key, v) : store.del('n_' + key); }
+        const cur = store.get('n_' + key); nb.textContent = cur || ''; nb.hidden = !cur; form.remove();
+      };
+    } else {
       const text = `${x.ar}\n\n${x.tr}\n\n— ${m.englishName} ${s}:${n}`;
-      if (b.dataset.act === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast(t('copied')), () => toast(text)); }
-      else { const u = 'https://t.me/share/url?url=' + encodeURIComponent(' ') + '&text=' + encodeURIComponent(text);
-        if (tg && tg.openTelegramLink) tg.openTelegramLink(u); else window.open(u, '_blank'); }
+      if (act === 'copy') (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast(t('copied')), () => toast(t('fail')));
+      else if (navigator.share && !inTg) navigator.share({ text }).catch(() => {});
+      else { const u = 'https://t.me/share/url?url=' + encodeURIComponent(' ') + '&text=' + encodeURIComponent(text); inTg && tg.openTelegramLink ? tg.openTelegramLink(u) : window.open(u, '_blank'); }
     }
   });
-  // remember reading position
-  const seen = new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting) store.set('pos', { s, a: +en.target.dataset.a }); }), { threshold: 0.6 });
-  document.querySelectorAll('.ayah').forEach(el => seen.observe(el));
-  if (a) { const el = $('#a' + a); if (el) el.scrollIntoView(); }
-}
-function playFrom(ayahs, startA) {
-  const idx = ayahs.findIndex(x => x.a === startA);
-  const go1 = i => {
-    if (i >= ayahs.length) { playing = null; return; }
-    document.querySelectorAll('.ayah.playing').forEach(e => e.classList.remove('playing'));
-    const el = $('#a' + ayahs[i].a); if (el) { el.classList.add('playing'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-    const rc = RECITERS.find(r => r[0] === S.reciter) || RECITERS[0];
-    player.src = `https://cdn.islamic.network/quran/audio/${rc[2]}/${rc[0]}/${ayahs[i].n}.mp3`;
-    player.onended = () => go1(i + 1);
-    player.onerror = () => { toast(t('fail')); };
-    player.play().catch(() => toast(t('fail')));
-    playing = i;
-  };
-  if (playing !== null && player.src && !player.paused && idx === playing) { player.pause(); return; }
-  go1(idx);
-}
+  // Remember the reading position (debounced: CloudStorage has rate limits).
+  const savePos = debounce(n => store.set('pos', { s, a: n }), 800);
+  const seen = new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting) { lastSeen = +en.target.dataset.a; savePos(lastSeen); } }), { rootMargin: '-35% 0px -55% 0px' });
+  ay.querySelectorAll('.ayah').forEach(el => seen.observe(el));
+  onLeave(() => seen.disconnect());
+  if (a > 1) { const el = $('#a' + a); if (el) el.scrollIntoView(); }
+};
 
 // ---------- Favorites ----------
-async function viewFavs() {
+VIEWS.favs = async function viewFavs() {
   const id = navId;
-  const list = [...favs()];
-  const notes = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(KEY + 'n_')) notes.push(k.slice((KEY + 'n_').length)); }
-  const ids = [...new Set([...list, ...notes])].sort((x, y) => { const [a, b] = x.split(':').map(Number), [c, d] = y.split(':').map(Number); return a - c || b - d; });
+  const fv = favs(), notes = store.keys('n_').map(k => k.slice(2));
+  const ids = [...new Set([...fv, ...notes])].filter(k => /^\d+:\d+$/.test(k)).sort((x, y) => { const [a, b] = x.split(':').map(Number), [c, d] = y.split(':').map(Number); return a - c || b - d; });
   let meta = []; try { meta = await getSurahs(); } catch (e) {}
   if (id !== navId) return;
-  view.innerHTML = `<button class="btn small" id="bk">← ${t('back')}</button><h1>${t('favorites')}</h1><div class="card list">${
-    ids.length ? ids.map(id => { const [s, a] = id.split(':').map(Number); const n = store.get('n_' + id);
-      return `<button class="item" data-s="${s}" data-a="${a}"><span>${favs().has(id) ? '★' : '📝'} ${esc(meta[s - 1] ? meta[s - 1].englishName : 'Surah ' + s)} ${s}:${a}
-      ${n ? `<br><span class="hint">${esc(n)}</span>` : ''}</span></button>`; }).join('') : `<span class="hint">${t('empty')}</span>`}</div>`;
-  $('#bk').onclick = () => go('more');
-  view.querySelectorAll('[data-s]').forEach(b => b.onclick = () => go('reader', { s: +b.dataset.s, a: +b.dataset.a }));
-}
+  view.innerHTML = `${topBar(t('favorites'))}${ids.length ? `<div class="card list">${ids.map(k => {
+    const [s, a] = k.split(':').map(Number), n = store.get('n_' + k);
+    return `<button class="item" data-s="${s}" data-a="${a}"><span class="ok" style="color:${fv.has(k) ? 'var(--gold)' : 'var(--hint)'}">${fv.has(k) ? ICON.star : ICON.note}</span>
+      <span class="grow"><b>${esc(meta[s - 1] ? meta[s - 1].englishName : 'Surah ' + s)}</b> · ${s}:${a}${n ? `<span class="sub">${esc(n.length > 120 ? n.slice(0, 120) + '…' : n)}</span>` : ''}</span><span class="chev">›</span></button>`;
+  }).join('')}</div>` : `<div class="card state"><b>${t('empty')}</b><p>${t('emptyFav')}</p></div>`}`;
+  wireBack();
+  view.querySelectorAll('[data-s]').forEach(b => { b.onclick = () => go('reader', { s: +b.dataset.s, a: +b.dataset.a, from: 'favs' }); });
+};
 
 // ---------- Dhikr ----------
-function viewDhikr() {
+VIEWS.dhikr = function viewDhikr() {
   const st = store.get('dhikr', { i: 0, c: {} });
-  const [txt, goal] = DHIKR[st.i];
-  const c = st.c[st.i] || 0;
+  if (!DHIKR[st.i]) st.i = 0;
+  const [ar, tl, ru, en, goal] = DHIKR[st.i];
+  const c = st.c[st.i] || 0, R = 46, L = 2 * Math.PI * R;
+  const ring = v => L * (1 - Math.min(v % goal === 0 && v ? 1 : (v % goal) / goal, 1));
   view.innerHTML = `<h1>${t('dhikr')}</h1>
-    <div class="field"><select id="dz">${DHIKR.map((d, i) => `<option value="${i}" ${i === st.i ? 'selected' : ''}>${d[0]} · ${d[1]}</option>`).join('')}</select></div>
-    <div class="ar" style="font-size:34px;text-align:center;line-height:1.6">${txt}</div>
-    <button class="counter" id="cnt">${c}<small>${t('goal')}: ${goal}</small></button>
-    <div class="row" style="justify-content:center"><button class="btn" id="rs">${t('reset')}</button></div>
-    <p class="hint" id="gd" style="text-align:center">${c >= goal ? t('done') : ''}</p>`;
-  $('#dz').onchange = e => { st.i = +e.target.value; store.set('dhikr', st); viewDhikr(); };
+    <div class="chips" role="tablist">${DHIKR.map((d, i) => `<button class="chip ${i === st.i ? 'on' : ''}" data-i="${i}" role="tab" aria-selected="${i === st.i}">${d[0]}</button>`).join('')}</div>
+    <div class="dhikr-text"><div class="ar">${ar}</div><div class="tl">${tl}</div><div class="mean">${S.lang === 'ru' ? ru : en}</div></div>
+    <button class="counter ${c >= goal ? 'done' : ''}" id="cnt" aria-live="polite"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="${R}"/><circle class="prog" cx="50" cy="50" r="${R}" stroke-dasharray="${L}" stroke-dashoffset="${ring(c)}"/></svg>
+      <b>${c}</b><small>${t('goal')} ${goal}</small></button>
+    <p class="hint" id="gd" style="text-align:center;min-height:22px">${c >= goal ? t('done') : ''}</p>
+    <div class="row" style="justify-content:center"><button class="btn" id="rs">${t('reset')}</button></div>`;
+  view.querySelector('.chips').onclick = e => { const b = e.target.closest('[data-i]'); if (b) { st.i = +b.dataset.i; store.set('dhikr', st); viewDhikr(); } };
+  const save = debounce(() => store.set('dhikr', st), 500);
   $('#cnt').onclick = () => {
-    st.c[st.i] = (st.c[st.i] || 0) + 1; store.set('dhikr', st);
-    const v = st.c[st.i]; $('#cnt').firstChild.nodeValue = v; haptic(v === goal ? 'heavy' : 'light');
+    const v = st.c[st.i] = (st.c[st.i] || 0) + 1; save();
+    $('#cnt b').textContent = v; $('#cnt .prog').style.strokeDashoffset = ring(v);
+    $('#cnt').classList.toggle('done', v >= goal); haptic(v % goal === 0 ? 'heavy' : 'light');
     $('#gd').textContent = v >= goal ? t('done') : '';
   };
+  onLeave(() => store.set('dhikr', st));
   $('#rs').onclick = () => { st.c[st.i] = 0; store.set('dhikr', st); viewDhikr(); };
-}
+};
 
 // ---------- Qibla ----------
-function viewQibla() {
+VIEWS.qibla = function viewQibla() {
   const b = qiblaBearing(S.loc.lat, S.loc.lon);
   view.innerHTML = `<h1>${t('qibla')}</h1><div class="card" style="text-align:center">
-    <div class="hint">${esc(S.loc.name)} · ${t('qiblaDir')}</div>
-    <div class="big">${Math.round(b)}°</div><div class="hint">${t('degrees')}</div>
-    <div class="compass"><span class="mark">N</span><div class="arrow" id="ar" style="transform:rotate(${b}deg)"></div></div>
-    <button class="btn primary" id="cp">${t('compassOn')}</button><p class="hint" id="cm"></p></div>`;
-  const rotate = h => { const el = $('#ar'); if (el) el.style.transform = `rotate(${(b - h + 360) % 360}deg)`; };
-  const listen = () => {
-    let got = false;
-    const onO = e => { const h = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? 360 - e.alpha : null);
-      if (h != null) { got = true; rotate(h); } };
-    window.addEventListener('deviceorientationabsolute', onO, true); window.addEventListener('deviceorientation', onO, true);
-    setTimeout(() => { if (!got) $('#cm').textContent = t('noSensor'); }, 2000);
+    <div class="hint">${ICON.pin.replace('class="ico"', 'class="ico" style="width:16px;height:16px;vertical-align:-3px"')} ${esc(S.loc.name)}</div>
+    <div class="compass"><div class="dial" id="dial"><span class="mark n">N</span><span class="mark s">S</span><div class="needle" style="transform:rotate(${b}deg)"></div></div><div class="hub"></div></div>
+    <div class="deg">${Math.round(b)}°</div><div class="hint">${t('qiblaDir')}, ${t('degrees')}</div>
+    <p style="margin-top:16px"><button class="btn primary" id="cp">${t('compassOn')}</button></p><p class="hint" id="cm">${t('compassHint')}</p></div>`;
+  let smooth = null;
+  const rotate = h => {
+    // Shortest-path smoothing so the dial does not spin around at 359° -> 0°.
+    if (smooth == null) smooth = h; else { let d = ((h - smooth + 540) % 360) - 180; smooth += d * 0.35; }
+    const el = $('#dial'); if (el) el.style.transform = `rotate(${-smooth}deg)`;
   };
+  const onO = e => { const h = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? 360 - e.alpha : null); if (h != null) { got = true; rotate(h); } };
+  let got = false;
+  const stop = () => { window.removeEventListener('deviceorientationabsolute', onO, true); window.removeEventListener('deviceorientation', onO, true); };
+  onLeave(stop);
   $('#cp').onclick = async () => {
-    try { if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) { const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') throw 0; } listen(); }
-    catch (e) { $('#cm').textContent = t('noSensor'); }
+    try {
+      if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) { const r = await DeviceOrientationEvent.requestPermission(); if (r !== 'granted') throw 0; }
+      window.addEventListener('deviceorientationabsolute', onO, true); window.addEventListener('deviceorientation', onO, true);
+      $('#cp').hidden = true;
+      setTimeout(() => { if (!got && $('#cm')) { $('#cm').textContent = t('noSensor'); $('#cp').hidden = false; } }, 2500);
+    } catch (e) { $('#cm').textContent = t('noSensor'); }
   };
-}
+};
+
+// ---------- 99 Names ----------
+VIEWS.names = function viewNames() {
+  view.innerHTML = `${topBar(t('names'))}<p class="hint" style="margin:-4px 0 12px">${t('namesSub')}</p>
+    <div class="field"><input type="search" id="nq" placeholder="${t('searchName')}" autocomplete="off" aria-label="${t('searchName')}"></div><div class="names" id="nl"></div>`;
+  wireBack();
+  const fill = f => {
+    const rows = NAMES.map((x, i) => [x, i]).filter(([x, i]) => !f || `${i + 1} ${x[1]} ${x[2]} ${x[3]} ${x[0]}`.toLowerCase().includes(f));
+    $('#nl').innerHTML = rows.length ? rows.map(([x, i]) => `<div class="nm"><span class="n">${i + 1}</span><div class="ar">${x[0]}</div><div class="tl">${esc(x[1])}</div><div class="mean">${esc(S.lang === 'ru' ? x[3] : x[2])}</div></div>`).join('')
+      : `<div class="state hint" style="grid-column:1/-1">${t('notFound')}</div>`;
+  };
+  fill('');
+  $('#nq').addEventListener('input', e => fill(e.target.value.trim().toLowerCase()));
+};
 
 // ---------- Calendar ----------
-async function viewCal() {
+VIEWS.cal = async function viewCal() {
   const id = navId;
-  view.innerHTML = `<button class="btn small" id="bk">← ${t('back')}</button><h1>${t('calendar')}</h1><div class="card hint">${t('loading')}</div>`;
-  $('#bk').onclick = () => go('more');
-  try {
-    const info = await today(); const mo = await month(info.n.y, info.n.m);
-    if (id !== navId) return;
-    $('.card').innerHTML = `<table><tr><th></th>${PRAYERS.map(p => `<th>${t(p)}</th>`).join('')}</tr>${mo.days.map(d =>
-      `<tr class="${d.d === info.n.d ? 'today' : ''}"><td>${d.d}</td>${d.t.map(x => `<td>${fmtHM(x)}</td>`).join('')}</tr>`).join('')}</table>`;
-  } catch (e) { $('.card').textContent = t('fail'); }
-}
+  view.innerHTML = `${topBar(t('calendar'))}<div class="card" id="ct">${skeleton(10)}</div>`;
+  wireBack();
+  const load = async () => {
+    try {
+      const info = await today(); const mo = await month(info.n.y, info.n.m);
+      if (id !== navId) return;
+      const short = p => t(p).slice(0, S.lang === 'ru' ? 4 : 3);
+      $('#ct').style.padding = '6px';
+      $('#ct').innerHTML = `<table><tr><th>${t('day')}</th>${PRAYERS.map(p => `<th>${short(p)}</th>`).join('')}</tr>${mo.days.map(d =>
+        `<tr class="${d.d === info.n.d ? 'today' : ''}"><td>${d.d} <span class="hint" style="font-size:11px">${d.hijri.d}</span></td>${d.t.map(x => `<td>${fmtHM(x)}</td>`).join('')}</tr>`).join('')}</table>`;
+      const td = view.querySelector('tr.today'); if (td) td.scrollIntoView({ block: 'center' });
+    } catch (e) { if (id === navId) failState($('#ct'), load); }
+  };
+  load();
+};
 
 // ---------- More / settings ----------
-function viewMore() {
+VIEWS.more = function viewMore() {
   const api = (window.NS_CONFIG || {}).BOT_API_URL;
-  view.innerHTML = `<h1>${t('settings')}</h1>
-    <div class="card list"><button class="item" id="fv"><span>★ ${t('favorites')}</span><span>›</span></button>
-      <button class="item" id="cl"><span>📅 ${t('calendar')}</span><span>›</span></button></div>
+  const seg = (id, val, opts) => `<div class="seg" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === val ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  view.innerHTML = `<h1>${t('more')}</h1>
+    <div class="card list">
+      <button class="item" id="nm"><span class="ok" style="color:var(--gold)">${ICON.star8}</span><span class="grow">${t('names')}</span><span class="chev">›</span></button>
+      <button class="item" id="fv"><span class="ok" style="color:var(--gold)">${ICON.star}</span><span class="grow">${t('favorites')}</span><span class="chev">›</span></button>
+      <button class="item" id="cl"><span class="ok" style="color:var(--gold)">${ICON.cal}</span><span class="grow">${t('calendar')}</span><span class="chev">›</span></button></div>
+    <h2>${t('location')}</h2>
     <div class="card">
-      <div class="field"><label>${t('city')}: <b>${esc(S.loc.name)}</b></label>
-        <div class="row"><input id="cq" placeholder="${t('search')}" style="flex:1"><button class="btn" id="cs">🔎</button></div>
-        <div id="cr" class="list"></div><button class="btn" id="gps">📍 ${t('useGps')}</button></div>
-      <div class="field"><label>${t('method')}</label><select id="mt">${METHODS.map(m => `<option value="${m[0]}" ${m[0] === S.method ? 'selected' : ''}>${m[1]}</option>`).join('')}</select></div>
-      <div class="field"><label>${t('madhab')}</label><select id="sc"><option value="0" ${S.school === 0 ? 'selected' : ''}>${t('shafii')}</option><option value="1" ${S.school === 1 ? 'selected' : ''}>${t('hanafi')}</option></select></div>
-      <div class="field"><label>${t('lang')}</label><select id="lg"><option value="ru" ${S.lang === 'ru' ? 'selected' : ''}>Русский</option><option value="en" ${S.lang === 'en' ? 'selected' : ''}>English</option></select></div>
-      <div class="field"><label><input type="checkbox" id="ad" ${S.adhan ? 'checked' : ''} ${api ? '' : 'disabled'}> ${t('adhanBot')}</label>${api ? '' : `<span class="hint">${t('adhanOff')}</span>`}</div>
-    </div><p class="hint">${t('trademark')}</p>`;
-  $('#fv').onclick = () => go('favs'); $('#cl').onclick = () => go('cal');
-  const setLoc = (name, lat, lon) => { S.loc = { name, lat: +lat.toFixed(4), lon: +lon.toFixed(4) }; saveSettings(); syncBot(); viewMore(); };
-  $('#cs').onclick = async () => {
+      <div class="row" style="margin-bottom:12px"><span>${ICON.pin}</span><b class="grow" style="flex:1">${esc(S.loc.name)}</b></div>
+      <form class="row" id="cf" style="margin-bottom:8px"><input type="search" id="cq" placeholder="${t('search')}" autocomplete="off" aria-label="${t('search')}" style="flex:1"><button class="btn icon" aria-label="${t('search')}">${ICON.search}</button></form>
+      <div id="cr" class="list"></div>
+      <button class="btn" id="gps" style="width:100%">${t('useGps')}</button></div>
+    <h2>${t('prayerSet')}</h2>
+    <div class="card">
+      <div class="field"><label for="mt">${t('method')}</label><select id="mt">${METHODS.map(m => `<option value="${m[0]}" ${m[0] === S.method ? 'selected' : ''}>${m[1]}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('madhab')}</label>${seg('sc', S.school, [[0, t('shafii')], [1, t('hanafi')]])}</div></div>
+    <h2>${t('look')}</h2>
+    <div class="card">
+      <div class="field"><label>${t('theme')}</label>${seg('th', S.theme, [['auto', t('auto')], ['light', t('light')], ['dark', t('dark')]])}</div>
+      <div class="field"><label>${t('lang')}</label>${seg('lg', S.lang, [['ru', 'Русский'], ['en', 'English']])}</div></div>
+    ${api ? `<div class="card"><label class="switch"><span>${t('adhanBot')}</span><input type="checkbox" id="ad" ${S.adhan ? 'checked' : ''}></label></div>` : ''}
+    <p class="foot">Base Islam · ${t('version')} ${VERSION}<br>${t('data')}</p>`;
+  $('#nm').onclick = () => go('names'); $('#fv').onclick = () => go('favs'); $('#cl').onclick = () => go('cal');
+  const setLoc = (name, lat, lon) => { S.loc = { name, lat: +(+lat).toFixed(4), lon: +(+lon).toFixed(4) }; S.locSet = true; saveSettings(); syncBot(); haptic(); go('home'); };
+  $('#cf').onsubmit = async e => {
+    e.preventDefault();
     const q = $('#cq').value.trim(); if (!q) return;
+    $('#cr').innerHTML = `<div class="hint" style="padding:8px 0">${t('loading')}</div>`;
     try {
-      const j = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?count=5&language=${S.lang}&name=${encodeURIComponent(q)}`);
+      const j = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?count=6&language=${S.lang}&name=${encodeURIComponent(q)}`);
       const r = j.results || [];
-      $('#cr').innerHTML = r.length ? r.map((x, i) => `<button class="item" data-i="${i}"><span>${esc(x.name)}, ${esc(x.country || '')} <span class="hint">${esc(x.admin1 || '')}</span></span></button>`).join('') : `<span class="hint">${t('notFound')}</span>`;
-      $('#cr').onclick = e => { const b = e.target.closest('[data-i]'); if (b) { const x = r[+b.dataset.i]; setLoc(x.name, x.latitude, x.longitude); } };
-    } catch (e) { toast(t('fail')); }
+      $('#cr').innerHTML = r.length ? r.map((x, i) => `<button type="button" class="item" data-i="${i}"><span class="grow"><b>${esc(x.name)}</b><span class="sub">${esc([x.admin1, x.country].filter(Boolean).join(', '))}</span></span><span class="chev">›</span></button>`).join('') : `<div class="hint" style="padding:8px 0">${t('notFound')}</div>`;
+      $('#cr').onclick = ev => { const b = ev.target.closest('[data-i]'); if (b) { const x = r[+b.dataset.i]; setLoc(x.name, x.latitude, x.longitude); } };
+    } catch (err) { $('#cr').innerHTML = ''; toast(t('fail')); }
   };
   $('#gps').onclick = () => {
     if (!navigator.geolocation) return toast(t('locDenied'));
-    navigator.geolocation.getCurrentPosition(p => setLoc(S.lang === 'ru' ? 'Моё место' : 'My location', p.coords.latitude, p.coords.longitude), () => toast(t('locDenied')), { timeout: 10000 });
+    navigator.geolocation.getCurrentPosition(p => setLoc(t('myPlace'), p.coords.latitude, p.coords.longitude), () => toast(t('locDenied')), { timeout: 10000, maximumAge: 600000 });
   };
   $('#mt').onchange = e => { S.method = +e.target.value; saveSettings(); syncBot(); };
-  $('#sc').onchange = e => { S.school = +e.target.value; saveSettings(); syncBot(); };
-  $('#lg').onchange = e => { S.lang = e.target.value; saveSettings(); renderTabs(); viewMore(); };
-  $('#ad').onchange = async e => { S.adhan = e.target.checked; saveSettings(); const ok = await syncBot(); toast(ok ? (S.adhan ? t('adhanSaved') : t('adhanStopped')) : t('fail')); };
-}
+  const onSeg = (id, fn) => { $('#' + id).onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; $('#' + id).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); fn(b.dataset.v); }; };
+  onSeg('sc', v => { S.school = +v; saveSettings(); syncBot(); });
+  onSeg('th', v => { S.theme = v; saveSettings(); applyTheme(); });
+  onSeg('lg', v => { S.lang = v; saveSettings(); applyTheme(); renderTabs(); surahList = null; viewMore(); });
+  if ($('#ad')) $('#ad').onchange = async e => { S.adhan = e.target.checked; saveSettings(); const ok = await syncBot(); toast(ok ? (S.adhan ? t('adhanSaved') : t('adhanStopped')) : t('fail')); };
+};
 async function syncBot() {
   const api = (window.NS_CONFIG || {}).BOT_API_URL;
-  if (!api || !tg || !tg.initData) return false;
+  if (!api || !inTg) return false;
   try {
-    const r = await fetch(api.replace(/\/$/, '') + '/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await fetchT(api.replace(/\/$/, '') + '/api/subscribe', 15000, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData: tg.initData, enabled: !!S.adhan, lat: S.loc.lat, lon: S.loc.lon, method: S.method, school: S.school, lang: S.lang }) });
     return r.ok;
   } catch (e) { return false; }
 }
 
 // ---------- boot ----------
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
-renderTabs();
-cloudPull().then(() => { Object.assign(S, store.get('settings', {})); renderTabs(); go('home'); });
-window.__ns = { qiblaBearing, nowIn, fmtHM, fmtHMS, S, go };
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+applyTheme(); netBanner(); renderTabs();
+cloudPull().then(() => { Object.assign(S, store.get('settings', {})); fixSettings(); applyTheme(); renderTabs(); go('home'); });
+window.__bi = { S, go, audio };
 })();

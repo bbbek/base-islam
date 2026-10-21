@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Adhan bot for the Nur Salah Mini App. Standard library only.
+"""Adhan bot for the Base Islam Mini App. Standard library only.
 
 Env: BOT_TOKEN (required), WEBAPP_URL (https URL of the Mini App, for /start), PORT (default 8080),
      DATA_FILE (default subscribers.json), ALLOWED_ORIGIN (CORS, default *).
 The Mini App posts its Telegram initData to /api/subscribe; this server verifies the signature.
 """
 import hashlib, hmac, json, os, threading, time, urllib.parse, urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
+START_TEXT = ("Ассаляму алейкум! Base Islam: время намаза, Коран, кибла, зикр и 99 имён Аллаха.\n"
+              "Чтобы получать азан сообщением, включите его в приложении: Ещё → Азан.")
 PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
 NAMES = {
     "ru": {"Fajr": "Фаджр", "Dhuhr": "Зухр", "Asr": "Аср", "Maghrib": "Магриб", "Isha": "Иша", "text": "Время намаза {p}"},
@@ -107,13 +109,19 @@ class Scheduler(threading.Thread):
     def __init__(self, store, send, fetch=fetch_timings, clock=time.time):
         super().__init__(daemon=True)
         self.store, self.send, self.fetch, self.clock = store, send, fetch, clock
-        self.cache, self.sent = {}, {}
+        self.cache, self.sent, self.retry_at = {}, {}, {}
 
     def tick(self):
         now_utc = datetime.fromtimestamp(self.clock(), ZoneInfo("UTC"))
+        # Forget sent-marks older than yesterday (UTC), so memory does not grow day after day.
+        oldest = (now_utc - timedelta(days=2)).date().isoformat()
+        self.sent = {k: v for k, v in self.sent.items() if k[1] >= oldest}
         for uid, rec in self.store.all().items():
+            key = None
             try:
                 key = (rec["lat"], rec["lon"], rec["method"], rec["school"])
+                if self.retry_at.get(key, 0) > self.clock():
+                    continue  # the prayer-times API failed for this place recently; do not hammer it
                 tz = self.cache.get(key, {}).get("tz")
                 local = now_utc.astimezone(ZoneInfo(tz)) if tz else now_utc
                 ck = key + (local.date().isoformat(),)
@@ -132,6 +140,8 @@ class Scheduler(threading.Thread):
                     n = NAMES[rec["lang"]]
                     self.send(int(uid), "🕌 " + n["text"].format(p=n[p]) + f" ({tm[p]})")
             except Exception as e:  # one bad subscriber must not stop the rest
+                if key is not None:
+                    self.retry_at[key] = self.clock() + 300
                 print("scheduler error", uid, e, flush=True)
 
     def run(self):
@@ -204,7 +214,7 @@ def poll_start_command(token, webapp_url, send):
                     offset = u["update_id"] + 1
                     m = u.get("message") or {}
                     if (m.get("text") or "").startswith("/start") and webapp_url:
-                        send(m["chat"]["id"], "Nur Salah", {"reply_markup": {"inline_keyboard": [[{"text": "Open", "web_app": {"url": webapp_url}}]]}})
+                        send(m["chat"]["id"], START_TEXT, {"reply_markup": {"inline_keyboard": [[{"text": "Открыть Base Islam", "web_app": {"url": webapp_url}}]]}})
         except Exception as e:
             print("poll error", e, flush=True)
             time.sleep(5)

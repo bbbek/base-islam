@@ -100,6 +100,24 @@ class Sched(unittest.TestCase):
         self.assertEqual(sent, [2])
 
 
+    def test_backs_off_after_api_error_and_prunes_old_marks(self):
+        st = S.Store(os.path.join(tempfile.mkdtemp(), "s.json"))
+        st.put(1, {"enabled": True, "lat": 10.0, "lon": 0.0, "method": 3, "school": 0, "lang": "ru"})
+        calls, clock = [], [datetime(2026, 10, 8, 12, 0, tzinfo=ZoneInfo("UTC")).timestamp()]
+        def fetch(rec, day):
+            calls.append(day)
+            raise RuntimeError("api down")
+        sch = S.Scheduler(st, lambda c, text: None, fetch, lambda: clock[0])
+        sch.tick(); sch.tick()
+        self.assertEqual(len(calls), 1)  # second tick is inside the 5 minute back-off
+        clock[0] += 301
+        sch.tick()
+        self.assertEqual(len(calls), 2)
+        sch.sent[("1", "2026-10-01")] = {"Fajr"}
+        sch.sent[("1", "2026-10-07")] = {"Fajr"}
+        sch.tick()
+        self.assertEqual(sorted(k[1] for k in sch.sent), ["2026-10-07"])
+
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
