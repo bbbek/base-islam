@@ -59,6 +59,20 @@ function surahFromUrl(url, lang) {
   return m && m[2] === (TRANSLATIONS[lang] || 'en.sahih') ? +m[1] : 0;
 }
 
+// Fasting day (Ramadan): before Fajr it is suhoor time, then the countdown runs to Maghrib (iftar).
+function fastingPhase(dayT, secs) {
+  if (secs < dayT[0]) return { phase: 'suhoor', left: dayT[0] - secs };
+  if (secs < dayT[4]) return { phase: 'iftar', left: dayT[4] - secs };
+  return { phase: 'done', left: 0 };
+}
+const isFriday = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 5;
+// Memorisation repeat: how many times to play each ayah (0 = loop forever).
+const REPEATS = [1, 3, 5, 0];
+const nextRepeat = r => REPEATS[(REPEATS.indexOf(r) + 1) % REPEATS.length];
+// After an ayah ends: play it again or move on. `played` counts plays of the current ayah, including the one that just ended.
+const afterAyah = (repeat, played) => (repeat === 0 || played < repeat ? 'again' : 'next');
+const shiftMonth = (y, m, k) => { const i = y * 12 + (m - 1) + k; return { y: Math.floor(i / 12), m: (i % 12) + 1 }; };
+
 // Same name for everyone on a given calendar day, cycles through all 99.
 function nameOfDay(y, m, d) { return Math.floor(Date.UTC(y, m - 1, d) / 86400000) % 99; }
 
@@ -79,6 +93,6 @@ async function pool(items, limit, fn, onStep) {
 }
 
 const lib = { KAABA, PRAYERS, ADHAN, TRANSLATIONS, qiblaBearing, nowIn, hm, fmtHM, fmtHMS, parseMonth, nextPrayer,
-  splitBasmala, surahUrl, surahFromUrl, nameOfDay, esc, pool };
+  splitBasmala, surahUrl, surahFromUrl, nameOfDay, esc, pool, fastingPhase, isFriday, REPEATS, nextRepeat, afterAyah, shiftMonth };
 if (typeof module === 'object' && module.exports) module.exports = lib; else root.BI = lib;
 })(typeof self !== 'undefined' ? self : this);

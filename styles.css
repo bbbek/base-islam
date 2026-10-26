@@ -181,3 +181,17 @@ td:first-child{text-align:left;padding-left:6px;white-space:nowrap}
 .foot{color:var(--hint);font-size:12px;text-align:center;margin-top:18px;line-height:1.6}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 @media (min-width:520px){.names{grid-template-columns:1fr 1fr 1fr}}
+.fast{padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.fast-top b{color:var(--gold)}
+.fast-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.fast-left b{font-variant-numeric:tabular-nums}
+.calnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
+.calnav b{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:16px}
+.calnav b .hint{font-size:12px;font-weight:500}
+.calnav .btn{font-size:22px}
+tr.fri td:first-child{color:var(--gold);font-weight:700}
+tr.ram td{background:var(--gold-soft)}
+.goayah{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.goayah input{width:110px;min-height:36px;padding:4px 10px;text-align:center}
+#playbar .rep{font-size:13px;font-weight:700;min-width:40px}
+#playbar .rep.on{color:var(--accent);background:var(--accent-soft)}

@@ -92,3 +92,25 @@ test('names.js has 99 complete entries', () => {
   for (const n of window.BI_NAMES) { assert.strictEqual(n.length, 4); n.forEach(f => assert.ok(f && f.trim())); assert.match(n[0], /[؀-ۿ]/); }
   assert.strictEqual(new Set(window.BI_NAMES.map(n => n[3])).size >= 95, true);
 });
+
+test('fasting phase: suhoor before Fajr, iftar countdown until Maghrib', () => {
+  const day = ['05:00', '06:30', '12:00', '15:30', '18:00', '19:30'].map(BI.hm);
+  assert.deepStrictEqual(BI.fastingPhase(day, BI.hm('04:00')), { phase: 'suhoor', left: 3600 });
+  assert.deepStrictEqual(BI.fastingPhase(day, BI.hm('17:00')), { phase: 'iftar', left: 3600 });
+  assert.strictEqual(BI.fastingPhase(day, BI.hm('18:00')).phase, 'done');
+});
+
+test('friday detection and month shifting', () => {
+  assert.strictEqual(BI.isFriday(2026, 10, 30), true);
+  assert.strictEqual(BI.isFriday(2026, 10, 29), false);
+  assert.deepStrictEqual(BI.shiftMonth(2026, 12, 1), { y: 2027, m: 1 });
+  assert.deepStrictEqual(BI.shiftMonth(2026, 1, -1), { y: 2025, m: 12 });
+  assert.deepStrictEqual(BI.shiftMonth(2026, 5, 0), { y: 2026, m: 5 });
+});
+
+test('ayah repeat cycles 1 → 3 → 5 → loop and decides when to move on', () => {
+  assert.strictEqual(BI.nextRepeat(1), 3); assert.strictEqual(BI.nextRepeat(5), 0); assert.strictEqual(BI.nextRepeat(0), 1);
+  assert.strictEqual(BI.afterAyah(1, 1), 'next');
+  assert.strictEqual(BI.afterAyah(3, 1), 'again'); assert.strictEqual(BI.afterAyah(3, 3), 'next');
+  assert.strictEqual(BI.afterAyah(0, 99), 'again');
+});

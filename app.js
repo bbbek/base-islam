@@ -1,14 +1,14 @@
 /* Base Islam: prayer times, Quran, dhikr, Qibla and the 99 Names. Telegram Mini App and PWA, no build step. Pure helpers live in lib.js. */
 (() => {
 'use strict';
-const { PRAYERS, ADHAN, TRANSLATIONS, qiblaBearing, nowIn, hm, fmtHM, fmtHMS, parseMonth, nextPrayer, splitBasmala, surahUrl, surahFromUrl, nameOfDay, esc, pool } = window.BI;
+const { PRAYERS, ADHAN, TRANSLATIONS, qiblaBearing, nowIn, hm, fmtHM, fmtHMS, parseMonth, nextPrayer, splitBasmala, surahUrl, surahFromUrl, nameOfDay, esc, pool, fastingPhase, isFriday, nextRepeat, afterAyah, shiftMonth } = window.BI;
 const NAMES = window.BI_NAMES || [];
 const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
 const inTg = !!(tg && tg.initData);
 if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view'), player = $('#player');
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 // ---------- i18n ----------
 const I18N = {
@@ -38,6 +38,10 @@ const I18N = {
     data: 'Данные: Aladhan, alquran.cloud, islamic.network, Open-Meteo', version: 'Версия',
     months: ['Мухаррам', 'Сафар', 'Раби аль-авваль', 'Раби ас-сани', 'Джумада аль-уля', 'Джумада ас-сания', 'Раджаб', 'Шаабан', 'Рамадан', 'Шавваль', 'Зуль-каада', 'Зуль-хиджа'],
     ah: 'г. х.', day: 'День',
+    jumuah: 'Джума', fast: 'Пост', suhoorEnds: 'Сухур до', iftarAt: 'Ифтар в', untilSuhoor: 'До конца сухура', untilIftar: 'До ифтара', fastDone: 'Пост на сегодня завершён. Да примет Аллах.',
+    whiteDays: 'Белые дни (13–15 числа) — желательно держать пост', prevMonth: 'Предыдущий месяц', nextMonth: 'Следующий месяц',
+    repeat: 'Повтор аята', repeatOnce: 'Без повтора', repeatLoop: 'Повторять без конца', goAyah: 'Аят №', go: 'Перейти',
+    tasbih: 'Тасбих после намаза: 33 + 33 + 34 подряд', todayCount: 'Сегодня', next2: 'Дальше',
   },
   en: {
     home: 'Prayer', quran: 'Quran', dhikr: 'Dhikr', qibla: 'Qibla', more: 'More',
@@ -65,6 +69,10 @@ const I18N = {
     data: 'Data: Aladhan, alquran.cloud, islamic.network, Open-Meteo', version: 'Version',
     months: ['Muharram', 'Safar', 'Rabi al-Awwal', 'Rabi al-Thani', 'Jumada al-Ula', 'Jumada al-Akhirah', 'Rajab', 'Shaban', 'Ramadan', 'Shawwal', 'Dhul-Qadah', 'Dhul-Hijjah'],
     ah: 'AH', day: 'Day',
+    jumuah: 'Jumuah', fast: 'Fasting', suhoorEnds: 'Suhoor ends', iftarAt: 'Iftar at', untilSuhoor: 'Suhoor ends in', untilIftar: 'Iftar in', fastDone: 'Today’s fast is complete. May Allah accept it.',
+    whiteDays: 'The White Days (13th–15th): fasting is recommended', prevMonth: 'Previous month', nextMonth: 'Next month',
+    repeat: 'Repeat ayah', repeatOnce: 'No repeat', repeatLoop: 'Repeat forever', goAyah: 'Ayah #', go: 'Go',
+    tasbih: 'After-prayer tasbih: 33 + 33 + 34 in a row', todayCount: 'Today', next2: 'Next',
   },
 };
 const METHODS = [[3, 'Muslim World League'], [14, 'ДУМ России / Spiritual Admin. of Muslims of Russia'], [13, 'Diyanet (Türkiye)'], [2, 'ISNA (North America)'],
@@ -125,11 +133,11 @@ function cloudPull() {
 }
 
 // ---------- state ----------
-const defaults = { lang: 'ru', method: 3, school: 0, size: 28, reciter: 'ar.alafasy', adhan: false, theme: 'auto',
+const defaults = { lang: 'ru', method: 3, school: 0, size: 28, reciter: 'ar.alafasy', adhan: false, theme: 'auto', repeat: 1,
   loc: { name: 'Makkah', lat: 21.4225, lon: 39.8262 } };
 const S = Object.assign({}, defaults, store.get('settings', {}));
 if (S.locSet === undefined) S.locSet = !['Mecca', 'Makkah'].includes(S.loc && S.loc.name); // the old version saved its Mecca default too
-const fixSettings = () => { if (!I18N[S.lang]) S.lang = 'ru'; if (!['auto', 'light', 'dark'].includes(S.theme)) S.theme = 'auto'; };
+const fixSettings = () => { if (![1, 3, 5, 0].includes(S.repeat)) S.repeat = 1; if (!I18N[S.lang]) S.lang = 'ru'; if (!['auto', 'light', 'dark'].includes(S.theme)) S.theme = 'auto'; };
 fixSettings();
 const t = k => (I18N[S.lang] && I18N[S.lang][k]) || I18N.en[k] || k;
 const saveSettings = () => store.set('settings', S);
@@ -272,20 +280,29 @@ VIEWS.home = async function viewHome() {
     const secs = nowIn(info.tz).secs, np = nextPrayer(info.day.t, info.tomorrow.t, secs);
     shownNext = np.i;
     const nextTime = np.tomorrow ? info.tomorrow.t[0] : info.day.t[np.i];
+    const fri = isFriday(info.n.y, info.n.m, info.n.d), pname = i => (i === 2 && fri ? t('jumuah') : t(PRAYERS[i]));
     const rows = PRAYERS.map((p, i) => {
       const cls = i === 1 ? 'sun' : i === np.i && !np.tomorrow ? 'next' : info.day.t[i] <= secs ? 'past' : '';
-      return `<div class="prayer ${cls}"><span>${t(p)}</span><span class="t">${fmtHM(info.day.t[i])}</span></div>`;
+      return `<div class="prayer ${cls}"><span>${pname(i)}</span><span class="t">${fmtHM(info.day.t[i])}</span></div>`;
     }).join('');
+    const h = info.day.hijri;
+    let fast = '';
+    if (h.m === 9) {
+      const f = fastingPhase(info.day.t, secs);
+      fast = `<div class="card fast"><div class="fast-top"><b>${t('fast')} · ${esc(hijriStr(h))}</b></div>
+        <div class="fast-row"><span>${t('suhoorEnds')} <b>${fmtHM(info.day.t[0])}</b></span><span>${t('iftarAt')} <b>${fmtHM(info.day.t[4])}</b></span></div>
+        <div class="fast-left">${f.phase === 'done' ? t('fastDone') : `${t(f.phase === 'suhoor' ? 'untilSuhoor' : 'untilIftar')}: <b id="fl">${fmtHMS(f.left)}</b>`}</div></div>`;
+    } else if (h.d >= 12 && h.d <= 15) fast = `<div class="card fast hint">${t('whiteDays')}</div>`;
     const nm = NAMES[nameOfDay(info.n.y, info.n.m, info.n.d)];
     view.innerHTML = `<div class="hero">
         <button class="loc" id="loc">${ICON.pin}${esc(S.loc.name)}</button>
         <div class="label">${t('next')}</div>
-        <div class="name">${t(PRAYERS[np.i])} · ${t('at')} ${fmtHM(nextTime)}</div>
+        <div class="name">${np.tomorrow ? t(PRAYERS[0]) : pname(np.i)} · ${t('at')} ${fmtHM(nextTime)}</div>
         <div class="big" id="cd" role="timer">${fmtHMS(np.left)}</div>
         <div class="dates"><span>${esc(gregStr(info.n))}</span><span>${esc(hijriStr(info.day.hijri))}</span></div>
       </div>
       ${S.locSet ? '' : `<button class="card item" id="setc" style="padding:14px 16px"><span class="ok">${ICON.pin}</span><span class="grow"><b>${t('setCity')}</b><span class="sub">${t('setCityHint')}</span></span><span class="chev">›</span></button>`}
-      <div class="card prayers">${rows}</div>
+      ${fast}<div class="card prayers">${rows}</div>
       ${nm ? `<h2>${t('nameDay')}</h2><button class="card daily" id="nd"><span class="ar">${nm[0]}</span><span class="grow"><b>${esc(nm[1])}</b><span class="sub hint">${esc(S.lang === 'ru' ? nm[3] : nm[2])}</span></span><span class="chev">›</span></button>` : ''}`;
     $('#loc').onclick = () => go('more');
     if ($('#setc')) $('#setc').onclick = () => go('more');
@@ -298,6 +315,7 @@ VIEWS.home = async function viewHome() {
     const np = nextPrayer(info.day.t, info.tomorrow.t, n.secs);
     if (np.i !== shownNext) return draw();
     const el = $('#cd'); if (el) el.textContent = fmtHMS(np.left);
+    const fl = $('#fl'); if (fl) { const f = fastingPhase(info.day.t, n.secs); if (f.phase === 'done') return draw(); fl.textContent = fmtHMS(f.left); }
   }, 1000);
   onLeave(() => clearInterval(timer));
   // Returning to the app after a long pause: refresh immediately instead of waiting for the next tick.
@@ -366,7 +384,7 @@ async function loadSurah(n) {
 const favs = () => new Set(store.get('favs', []));
 
 // Audio: one queue for the whole app, so recitation continues while browsing.
-const audio = { s: 0, list: null, i: -1, title: '' };
+const audio = { s: 0, list: null, i: -1, title: '', played: 0 };
 function markPlaying() {
   document.querySelectorAll('.ayah.playing').forEach(e => e.classList.remove('playing'));
   const pb = $('#pp'); if (pb) { pb.innerHTML = player.paused ? ICON.play : ICON.pause; pb.setAttribute('aria-label', t(player.paused ? 'play' : 'pause')); }
@@ -376,6 +394,7 @@ function markPlaying() {
 }
 function playAt(i) {
   if (!audio.list || i >= audio.list.length) { audio.i = -1; markPlaying(); return; }
+  if (i !== audio.i) audio.played = 0;
   audio.i = i;
   const rc = RECITERS.find(r => r[0] === S.reciter) || RECITERS[0];
   player.src = `https://cdn.islamic.network/quran/audio/${rc[2]}/${rc[0]}/${audio.list[i].n}.mp3`;
@@ -384,7 +403,12 @@ function playAt(i) {
     try { navigator.mediaSession.metadata = new MediaMetadata({ title: `${audio.title} ${audio.s}:${audio.list[i].a}`, artist: rc[1], album: 'Base Islam', artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] }); } catch (e) {}
   }
 }
-player.addEventListener('ended', () => playAt(audio.i + 1));
+player.addEventListener('ended', () => {
+  audio.played++;
+  if (afterAyah(S.repeat, audio.played) === 'again') { player.currentTime = 0; player.play().catch(() => {}); } else playAt(audio.i + 1);
+});
+const repeatLabel = () => S.repeat === 1 ? '1×' : S.repeat === 0 ? '∞' : S.repeat + '×';
+const repeatTitle = () => S.repeat === 1 ? t('repeatOnce') : S.repeat === 0 ? t('repeatLoop') : `${t('repeat')}: ${S.repeat}`;
 player.addEventListener('play', markPlaying); player.addEventListener('pause', markPlaying);
 player.addEventListener('error', () => { if (player.getAttribute('src')) { toast(navigator.onLine === false ? t('audioNet') : t('fail')); markPlaying(); } });
 if ('mediaSession' in navigator) {
@@ -418,16 +442,20 @@ VIEWS.reader = async function viewReader({ s, a }) {
       </div></div>`;
   };
   view.innerHTML = `${topBar(`${s}. ${esc(m.englishName)}`)}
-    <div class="surah-head"><div class="ar">${esc(m.name)}</div><div class="hint">${esc(m.englishNameTranslation)} · ${t(m.revelationType === 'Meccan' ? 'meccan' : 'medinan')} · ${m.numberOfAyahs} ${t('ayahs')}</div></div>
+    <div class="surah-head"><div class="ar">${esc(m.name)}</div><div class="hint">${esc(m.englishNameTranslation)} · ${t(m.revelationType === 'Meccan' ? 'meccan' : 'medinan')} · ${m.numberOfAyahs} ${t('ayahs')}</div>
+      ${m.numberOfAyahs > 7 ? `<form class="goayah" id="ga"><input type="number" inputmode="numeric" min="1" max="${m.numberOfAyahs}" placeholder="${t('goAyah')}" aria-label="${t('goAyah')}"><button class="btn small">${t('go')}</button></form>` : ''}</div>
     <div id="ay">${ayahs.map(ayahHtml).join('')}</div><div class="reader-pad"></div>
     <div id="playbar"><button class="btn primary icon" id="pp" aria-label="${t('play')}">${ICON.play}</button>
       <select id="rc" aria-label="${t('reciter')}">${RECITERS.map(r => `<option value="${r[0]}" ${r[0] === S.reciter ? 'selected' : ''}>${r[1]}</option>`).join('')}</select>
+      <button class="btn icon rep${S.repeat === 1 ? '' : ' on'}" id="rp" aria-label="${repeatTitle()}" title="${repeatTitle()}">${repeatLabel()}</button>
       <span class="size"><button class="btn icon" id="fsm" aria-label="${t('smaller')}">A−</button><button class="btn icon" id="fsp" aria-label="${t('bigger')}">A+</button></span></div>`;
   wireBack();
   markPlaying();
   $('#rc').onchange = e => { S.reciter = e.target.value; saveSettings(); if (audio.s === s && !player.paused) playAt(audio.i); };
   const size = d => { S.size = Math.min(44, Math.max(20, S.size + d)); view.style.setProperty('--arsize', S.size + 'px'); saveSettings(); };
   $('#fsm').onclick = () => size(-2); $('#fsp').onclick = () => size(2);
+  $('#rp').onclick = () => { S.repeat = nextRepeat(S.repeat); saveSettings(); const b = $('#rp'); b.textContent = repeatLabel(); b.classList.toggle('on', S.repeat !== 1); b.setAttribute('aria-label', repeatTitle()); b.title = repeatTitle(); toast(repeatTitle()); haptic(); };
+  if ($('#ga')) $('#ga').onsubmit = e => { e.preventDefault(); const inp = e.target.querySelector('input'), n = +inp.value, el = $('#a' + n); if (el) { el.scrollIntoView({ block: 'start' }); inp.value = ''; inp.blur(); } };
   let lastSeen = a || 1;
   $('#pp').onclick = () => {
     if (audio.s === s && audio.i >= 0 && player.getAttribute('src')) { player.paused ? player.play().catch(() => toast(t('audioNet'))) : player.pause(); return; }
@@ -492,6 +520,8 @@ VIEWS.favs = async function viewFavs() {
 VIEWS.dhikr = function viewDhikr() {
   const st = store.get('dhikr', { i: 0, c: {} });
   if (!DHIKR[st.i]) st.i = 0;
+  const dk = new Date().toDateString();
+  if (!st.day || st.day.d !== dk) st.day = { d: dk, n: 0 };
   const [ar, tl, ru, en, goal] = DHIKR[st.i];
   const c = st.c[st.i] || 0, R = 46, L = 2 * Math.PI * R;
   const ring = v => L * (1 - Math.min(v % goal === 0 && v ? 1 : (v % goal) / goal, 1));
@@ -501,15 +531,24 @@ VIEWS.dhikr = function viewDhikr() {
     <button class="counter ${c >= goal ? 'done' : ''}" id="cnt" aria-live="polite"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="${R}"/><circle class="prog" cx="50" cy="50" r="${R}" stroke-dasharray="${L}" stroke-dashoffset="${ring(c)}"/></svg>
       <b>${c}</b><small>${t('goal')} ${goal}</small></button>
     <p class="hint" id="gd" style="text-align:center;min-height:22px">${c >= goal ? t('done') : ''}</p>
-    <div class="row" style="justify-content:center"><button class="btn" id="rs">${t('reset')}</button></div>`;
+    <div class="row" style="justify-content:center"><button class="btn" id="rs">${t('reset')}</button></div>
+    <div class="card" style="margin-top:16px"><label class="switch"><span>${t('tasbih')}</span><input type="checkbox" id="au" ${st.auto ? 'checked' : ''}></label>
+      <div class="hint" style="margin-top:8px">${t('todayCount')}: <b id="dt">${st.day.n}</b></div></div>`;
   view.querySelector('.chips').onclick = e => { const b = e.target.closest('[data-i]'); if (b) { st.i = +b.dataset.i; store.set('dhikr', st); viewDhikr(); } };
   const save = debounce(() => store.set('dhikr', st), 500);
   $('#cnt').onclick = () => {
-    const v = st.c[st.i] = (st.c[st.i] || 0) + 1; save();
-    $('#cnt b').textContent = v; $('#cnt .prog').style.strokeDashoffset = ring(v);
+    const v = st.c[st.i] = (st.c[st.i] || 0) + 1; st.day.n++; save();
+    $('#cnt b').textContent = v; $('#cnt .prog').style.strokeDashoffset = ring(v); $('#dt').textContent = st.day.n;
     $('#cnt').classList.toggle('done', v >= goal); haptic(v % goal === 0 ? 'heavy' : 'light');
     $('#gd').textContent = v >= goal ? t('done') : '';
+    // After-prayer tasbih: SubhanAllah 33 → Alhamdulillah 33 → Allahu akbar 34, then stop.
+    if (st.auto && v === goal && st.i < 2) {
+      $('#gd').textContent = `${t('next2')}: ${DHIKR[st.i + 1][1]}`;
+      $('#cnt').disabled = true;
+      setTimeout(() => { if (!$('#cnt')) return; st.i++; st.c[st.i] = 0; store.set('dhikr', st); viewDhikr(); }, 900);
+    }
   };
+  $('#au').onchange = e => { st.auto = e.target.checked; if (st.auto) { st.i = 0; [0, 1, 2].forEach(i => { st.c[i] = 0; }); } store.set('dhikr', st); viewDhikr(); };
   onLeave(() => store.set('dhikr', st));
   $('#rs').onclick = () => { st.c[st.i] = 0; store.set('dhikr', st); viewDhikr(); };
 };
@@ -557,19 +596,27 @@ VIEWS.names = function viewNames() {
 };
 
 // ---------- Calendar ----------
-VIEWS.cal = async function viewCal() {
+VIEWS.cal = async function viewCal(arg) {
   const id = navId;
-  view.innerHTML = `${topBar(t('calendar'))}<div class="card" id="ct">${skeleton(10)}</div>`;
+  view.innerHTML = `${topBar(t('calendar'))}<div class="calnav"><button class="btn icon ghost" id="cpv" aria-label="${t('prevMonth')}">‹</button><b id="cml">&nbsp;</b><button class="btn icon ghost" id="cnx" aria-label="${t('nextMonth')}">›</button></div><div class="card" id="ct">${skeleton(10)}</div>`;
   wireBack();
   const load = async () => {
     try {
-      const info = await today(); const mo = await month(info.n.y, info.n.m);
+      const info = await today();
+      const ym = arg && arg.y ? arg : { y: info.n.y, m: info.n.m };
+      const mo = await month(ym.y, ym.m);
       if (id !== navId) return;
+      const cur = ym.y === info.n.y && ym.m === info.n.m;
+      let mname = `${ym.m}.${ym.y}`; try { mname = new Intl.DateTimeFormat(S.lang, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(ym.y, ym.m - 1, 1))); mname = mname[0].toUpperCase() + mname.slice(1); } catch (e) {}
+      const h1 = mo.days[0].hijri, h2 = mo.days[mo.days.length - 1].hijri;
+      $('#cml').innerHTML = `${esc(mname)}<span class="hint">${esc(t('months')[h1.m - 1] || '')}${h2.m !== h1.m ? ' – ' + esc(t('months')[h2.m - 1] || '') : ''} ${h2.y}</span>`;
       const short = p => t(p).slice(0, S.lang === 'ru' ? 4 : 3);
       $('#ct').style.padding = '6px';
       $('#ct').innerHTML = `<table><tr><th>${t('day')}</th>${PRAYERS.map(p => `<th>${short(p)}</th>`).join('')}</tr>${mo.days.map(d =>
-        `<tr class="${d.d === info.n.d ? 'today' : ''}"><td>${d.d} <span class="hint" style="font-size:11px">${d.hijri.d}</span></td>${d.t.map(x => `<td>${fmtHM(x)}</td>`).join('')}</tr>`).join('')}</table>`;
-      const td = view.querySelector('tr.today'); if (td) td.scrollIntoView({ block: 'center' });
+        `<tr class="${cur && d.d === info.n.d ? 'today' : ''}${isFriday(ym.y, ym.m, d.d) ? ' fri' : ''}${d.hijri.m === 9 ? ' ram' : ''}"><td>${d.d} <span class="hint" style="font-size:11px">${d.hijri.d}</span></td>${d.t.map(x => `<td>${fmtHM(x)}</td>`).join('')}</tr>`).join('')}</table>`;
+      const td = view.querySelector('tr.today'); if (td) td.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0);
+      $('#cpv').onclick = () => VIEWS.cal(shiftMonth(ym.y, ym.m, -1));
+      $('#cnx').onclick = () => VIEWS.cal(shiftMonth(ym.y, ym.m, 1));
     } catch (e) { if (id === navId) failState($('#ct'), load); }
   };
   load();
