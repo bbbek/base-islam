@@ -2,7 +2,7 @@
 // App shell: network-first, so updates reach users; cached copy when offline.
 // Quran text (api.alquran.cloud): cache-first, it never changes. Fonts and the Telegram SDK: cache-first.
 // Cache names keep the old "ns-" prefix so text users already saved stays available.
-const SHELL = 'ns-shell-v5', DATA = 'ns-data-v1', STATIC = 'ns-static-v1';
+const SHELL = 'ns-shell-v6', DATA = 'ns-data-v1', STATIC = 'ns-static-v1';
 const FILES = ['./', 'index.html', 'styles.css', 'lib.js', 'names.js', 'app.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png'];
 const KEEP = [SHELL, DATA, STATIC];
 self.addEventListener('install', e => {

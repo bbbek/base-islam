@@ -5,7 +5,7 @@ const { PRAYERS, ADHAN, TRANSLATIONS, qiblaBearing, nowIn, hm, fmtHM, fmtHMS, pa
 const NAMES = window.BI_NAMES || [];
 const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
 const inTg = !!(tg && tg.initData);
-if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+if (tg) { try { tg.ready(); tg.expand(); if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {} }
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view'), player = $('#player');
 const VERSION = '2.1.0';
@@ -218,9 +218,12 @@ async function month(y, m) {
   evictOldCalendars(key);
   return out;
 }
+// Keep at most 6 saved months, dropping the ones farthest from today, so browsing the calendar never evicts this month (needed offline).
 function evictOldCalendars(keep) {
-  const keys = store.keys('cal:').filter(k => k !== keep);
-  keys.slice(0, Math.max(0, keys.length - 6)).forEach(k => { try { localStorage.removeItem(KEY + k); } catch (e) {} });
+  const now = new Date(), cur = now.getFullYear() * 12 + now.getMonth();
+  const dist = k => { const m = /:(\d{4})-(\d{1,2})$/.exec(k); return m ? Math.abs(+m[1] * 12 + (+m[2] - 1) - cur) : 999; };
+  const keys = store.keys('cal:').filter(k => k !== keep).sort((x, y) => dist(y) - dist(x));
+  keys.slice(0, Math.max(0, keys.length - 5)).forEach(k => { try { localStorage.removeItem(KEY + k); } catch (e) {} });
 }
 const addDays = (n, k) => { const d = new Date(Date.UTC(n.y, n.m - 1, n.d + k)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; };
 async function today() {
@@ -394,7 +397,7 @@ function markPlaying() {
 }
 function playAt(i) {
   if (!audio.list || i >= audio.list.length) { audio.i = -1; markPlaying(); return; }
-  if (i !== audio.i) audio.played = 0;
+  audio.played = 0;
   audio.i = i;
   const rc = RECITERS.find(r => r[0] === S.reciter) || RECITERS[0];
   player.src = `https://cdn.islamic.network/quran/audio/${rc[2]}/${rc[0]}/${audio.list[i].n}.mp3`;
